@@ -1,0 +1,91 @@
+{
+  "name": "buildstack-budget",
+  "version": "1.0.0",
+  "description": "BuildStack Budget — Gérez vos finances personnelles avec clarté",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "dev:electron": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "build:pwa": "vite build",
+    "build:electron": "cross-env BUILD_TARGET=electron vite build && electron-builder",
+    "preview": "vite preview --host",
+    "electron": "electron .",
+    "build:installer": "cross-env BUILD_TARGET=electron vite build && electron-builder --win nsis",
+    "build:portable": "cross-env BUILD_TARGET=electron vite build && electron-builder --win portable",
+    "build:all": "cross-env BUILD_TARGET=electron vite build && electron-builder --win"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "autoprefixer": "^10.5.4",
+    "concurrently": "^8.2.0",
+    "cross-env": "^7.0.3",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.6.4",
+    "postcss": "^8.5.26",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.0",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.buildstack.budget",
+    "productName": "BuildStack Budget",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/icon.ico"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "public/icon.ico",
+      "sign": null,
+      "signingHashAlgorithms": [],
+      "forceCodeSigning": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "BuildStack Budget",
+      "artifactName": "BuildStackBudget-Setup-${version}.exe",
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "BuildStackBudget-Portable-${version}.exe"
+    },
+    "extraResources": [
+      {
+        "from": "public/icon.ico",
+        "to": "icon.ico"
+      }
+    ]
+  },
+  "author": "BuildStack",
+  "productName": "BuildStack Budget"
+}

@@ -1,0 +1,20 @@
+<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bsBarGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#154A8A"/>
+      <stop offset="100%" stop-color="#0B2545"/>
+    </linearGradient>
+    <linearGradient id="bsChevGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F2B84B"/>
+      <stop offset="100%" stop-color="#E8A33D"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Barres empilées (stack) -->
+  <rect x="18" y="72" width="84" height="14" rx="4" fill="url(#bsBarGrad)"/>
+  <rect x="18" y="52" width="84" height="14" rx="4" fill="url(#bsBarGrad)" opacity="0.92"/>
+  <rect x="18" y="32" width="84" height="14" rx="4" fill="url(#bsBarGrad)" opacity="0.84"/>
+
+  <!-- Chevron doré montant, posé sur les barres -->
+  <path d="M 30 30 L 60 8 L 90 30 L 78 30 L 60 17 L 42 30 Z" fill="url(#bsChevGrad)"/>
+</svg>

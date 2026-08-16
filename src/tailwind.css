@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Reset de base minimal — le reste des styles de base reste dans index.css */
+@layer base {
+    * {
+        box-sizing: border-box;
+    }
+}
