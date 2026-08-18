@@ -23,11 +23,13 @@ function Field({
   const [show, setShow] = useState(false);
   const isPass = type === "password";
   return (
-    <div className="acc-field">
-      <label className="acc-field-label">{label}</label>
-      <div className="acc-field-wrap">
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[0.83rem] font-bold text-text-muted">
+        {label}
+      </label>
+      <div className="relative">
         <input
-          className="acc-field-input"
+          className="w-full py-2.5 px-3.5 bg-surface border-[1.5px] border-border rounded-[9px] text-text text-[0.9rem] transition-colors outline-none focus:border-primary"
           type={isPass && !show ? "password" : "text"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -36,15 +38,15 @@ function Field({
         />
         {isPass && (
           <button
-            className="login-eye"
-            onClick={() => setShow((v) => !v)}
             type="button"
+            onClick={() => setShow((v) => !v)}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 bg-transparent border-none cursor-pointer text-base opacity-50 hover:opacity-100 p-1"
           >
             {show ? "🙈" : "👁️"}
           </button>
         )}
       </div>
-      {hint && <div className="acc-field-hint">{hint}</div>}
+      {hint && <div className="text-[0.72rem] text-text-muted">{hint}</div>}
     </div>
   );
 }
@@ -52,7 +54,9 @@ function Field({
 function Feedback({ error, ok }: { error: string; ok: string }) {
   if (!error && !ok) return null;
   return (
-    <div className={`acc-feedback ${error ? "error" : "ok"}`}>
+    <div
+      className={`py-2.5 px-3.5 rounded-lg text-[0.83rem] font-semibold ${error ? "bg-danger/10 border border-danger/25 text-danger" : "bg-success/10 border border-success/25 text-success"}`}
+    >
       {error ? `⚠️ ${error}` : `✓ ${ok}`}
     </div>
   );
@@ -60,10 +64,17 @@ function Feedback({ error, ok }: { error: string; ok: string }) {
 
 interface Props {
   username: string;
-  currentUser: CurrentUser; // ← ajout pour accéder au token JWT
+  currentUser: CurrentUser;
   onLogout: () => void;
   onUsernameChanged: (newUsername: string) => void;
 }
+
+const SECTIONS = [
+  { id: "info", icon: "⊙", label: "Informations" },
+  { id: "password", icon: "🔑", label: "Mot de passe" },
+  { id: "username", icon: "✏️", label: "Nom d'utilisateur" },
+  { id: "delete", icon: "🗑️", label: "Supprimer le compte" },
+];
 
 export default function AccountPage({
   username,
@@ -168,74 +179,96 @@ export default function AccountPage({
     else setError(r.error ?? "Erreur inconnue");
   };
 
-  const SECTIONS = [
-    { id: "info", icon: "⊙", label: "Informations" },
-    { id: "password", icon: "🔑", label: "Mot de passe" },
-    { id: "username", icon: "✏️", label: "Nom d'utilisateur" },
-    { id: "delete", icon: "🗑️", label: "Supprimer le compte" },
-  ];
-
   return (
-    <div className="acc-page">
-      <div className="acc-hero">
+    <div className="max-w-[860px]">
+      <div className="flex items-center gap-[18px] py-6 px-7 rounded-2xl bg-surface-soft border border-border mb-6 flex-wrap">
         <div
-          className="acc-avatar-big"
+          className="w-14 h-14 rounded-2xl flex items-center justify-center text-[1.4rem] font-extrabold text-white flex-shrink-0 shadow-[0_4px_14px_rgba(0,0,0,0.2)]"
           style={{
             background: `linear-gradient(135deg, ${color}, ${color}aa)`,
           }}
         >
           {initial}
         </div>
-        <div className="acc-hero-info">
-          <h1 className="acc-hero-name">{username}</h1>
-          <span className="acc-hero-role">Compte · Budget Tracker</span>
+        <div className="flex-1">
+          <h1 className="text-[1.25rem] font-extrabold text-text mb-[3px]">
+            {username}
+          </h1>
+          <span className="text-[0.8rem] text-text-muted">
+            Compte · BuildStack Budget
+          </span>
         </div>
-        <button className="btn btn-secondary acc-logout-btn" onClick={onLogout}>
+        <button className="btn btn-secondary flex-shrink-0" onClick={onLogout}>
           ⎋ Se déconnecter
         </button>
       </div>
 
-      <div className="acc-layout">
-        <nav className="acc-nav">
-          {SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              className={`acc-nav-item ${section === s.id ? "active" : ""} ${s.id === "delete" ? "danger" : ""}`}
-              onClick={() => reset(s.id)}
-            >
-              <span className="acc-nav-icon">{s.icon}</span>
-              <span>{s.label}</span>
-            </button>
-          ))}
+      <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-5">
+        <nav className="flex flex-col gap-[3px]">
+          {SECTIONS.map((s) => {
+            const active = section === s.id;
+            const danger = s.id === "delete";
+            return (
+              <button
+                key={s.id}
+                onClick={() => reset(s.id)}
+                className={`flex items-center gap-[9px] py-2.5 px-3 rounded-[10px] border-none text-[0.87rem] font-semibold cursor-pointer transition-all text-left w-full
+                  ${
+                    danger
+                      ? active
+                        ? "bg-danger/10 text-danger"
+                        : "text-danger hover:bg-danger/[0.08]"
+                      : active
+                        ? "bg-gradient-to-br from-primary/[0.12] to-primary/[0.04] text-primary"
+                        : "bg-transparent text-text-muted hover:bg-surface-soft hover:text-text"
+                  }`}
+              >
+                <span className="text-base w-5 text-center">{s.icon}</span>
+                <span>{s.label}</span>
+              </button>
+            );
+          })}
         </nav>
 
-        <div className="acc-content">
+        <div>
           {section === "info" && (
-            <div className="acc-section">
-              <h2 className="acc-section-title">Informations du compte</h2>
-              <div className="acc-info-grid">
-                <div className="acc-info-row">
-                  <span className="acc-info-key">Nom d'utilisateur</span>
-                  <span className="acc-info-val">{username}</span>
-                </div>
-                <div className="acc-info-row">
-                  <span className="acc-info-key">Mode</span>
-                  <span className="acc-info-val">
-                    {currentUser.token ? "Connecté (API)" : "Local (Electron)"}
-                  </span>
-                </div>
-                <div className="acc-info-row">
-                  <span className="acc-info-key">Authentification</span>
-                  <span className="acc-info-val">PBKDF2-SHA512</span>
-                </div>
+            <div>
+              <h2 className="text-[1.05rem] font-extrabold text-text mb-5 pb-3.5 border-b border-border">
+                Informations du compte
+              </h2>
+              <div className="flex flex-col">
+                {[
+                  { key: "Nom d'utilisateur", val: username },
+                  {
+                    key: "Mode",
+                    val: currentUser.token
+                      ? "Connecté (API)"
+                      : "Local (Electron)",
+                  },
+                  { key: "Authentification", val: "PBKDF2-SHA512" },
+                ].map((row, i) => (
+                  <div
+                    key={i}
+                    className="flex justify-between items-baseline gap-4 py-3.5 border-b border-border last:border-b-0"
+                  >
+                    <span className="text-[0.85rem] text-text-muted font-medium flex-shrink-0">
+                      {row.key}
+                    </span>
+                    <span className="text-[0.85rem] text-text font-semibold text-right font-mono break-all">
+                      {row.val}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
           {section === "password" && (
-            <div className="acc-section">
-              <h2 className="acc-section-title">Modifier le mot de passe</h2>
-              <div className="acc-form">
+            <div>
+              <h2 className="text-[1.05rem] font-extrabold text-text mb-5 pb-3.5 border-b border-border">
+                Modifier le mot de passe
+              </h2>
+              <div className="flex flex-col gap-4 max-w-[420px]">
                 <Field
                   label="Mot de passe actuel"
                   type="password"
@@ -269,12 +302,12 @@ export default function AccountPage({
           )}
 
           {section === "username" && (
-            <div className="acc-section">
-              <h2 className="acc-section-title">
+            <div>
+              <h2 className="text-[1.05rem] font-extrabold text-text mb-5 pb-3.5 border-b border-border">
                 Modifier le nom d'utilisateur
               </h2>
-              <div className="acc-form">
-                <div className="acc-warning">
+              <div className="flex flex-col gap-4 max-w-[420px]">
+                <div className="py-2.5 px-3.5 rounded-[9px] bg-warning/10 border border-warning/25 text-warning text-[0.83rem] font-semibold">
                   ⚠️ Vous serez déconnecté automatiquement après la
                   modification.
                 </div>
@@ -305,15 +338,12 @@ export default function AccountPage({
           )}
 
           {section === "delete" && (
-            <div className="acc-section">
-              <h2
-                className="acc-section-title"
-                style={{ color: "var(--danger)" }}
-              >
+            <div>
+              <h2 className="text-[1.05rem] font-extrabold text-danger mb-5 pb-3.5 border-b border-border">
                 Supprimer le compte
               </h2>
-              <div className="acc-form">
-                <div className="acc-danger-note">
+              <div className="flex flex-col gap-4 max-w-[420px]">
+                <div className="py-2.5 px-3.5 rounded-[9px] bg-danger/10 border border-danger/25 text-danger text-[0.83rem] font-semibold">
                   🚨 Cette action est <strong>irréversible</strong>. Toutes vos
                   données seront supprimées définitivement.
                 </div>

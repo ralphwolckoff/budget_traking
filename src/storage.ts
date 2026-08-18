@@ -1,11 +1,11 @@
 import { defaultData } from "./constants";
-import type { AppData, AuthResult, Storage } from "./types";
+import type { AppData, AuthResult, Storage, Investment } from "./types";
 
 // ── Config ─────────────────────────────────────────────────────────────────────
 const IS_ELECTRON = Boolean(window.electronAPI);
 const SERVER_URL = IS_ELECTRON
   ? "http://127.0.0.1:47291"
-  : ((import.meta.env.VITE_API_URL as string) ?? "http://localhost:3001/api");
+  : ((import.meta.env.VITE_API_URL as string) ?? "http://localhost:3002/api");
 
 const KEY_TOKEN = "bt-session-token";
 const KEY_USERNAME = "bt-session-username";
@@ -41,7 +41,41 @@ type QueueAction =
       monthKey: string;
       salary: number | null;
       savings: number | null;
-    };
+    }
+  | { type: "saveRecurring"; id: string; data: RecurringExpensePayload }
+  | { type: "deleteRecurring"; id: string }
+  | { type: "saveInvestment"; id: string; data: InvestmentPayload }
+  | { type: "deleteInvestment"; id: string };
+
+// Payloads envoyés au serveur pour Recurring/Investment (upsert whole-object)
+export type RecurringExpensePayload = {
+  description: string;
+  category: string;
+  amount: number;
+  dayOfMonth: number;
+  active: boolean;
+  startMonth: string;
+  endMonth?: string;
+  lastGeneratedMonth?: string;
+  notes?: string;
+};
+export type InvestmentPayload = {
+  type: string;
+  name: string;
+  amount: number;
+  startDate: string;
+  endDate?: string;
+  durationMonths?: number;
+  expectedReturn?: number;
+  currentValue?: number;
+  notes?: string;
+  status: string;
+  payments?: unknown[];
+  gains?: unknown[];
+  events?: unknown[];
+  valueHistory?: unknown[];
+  documents?: unknown[];
+};
 
 interface QueueEntry {
   id: string;
@@ -219,6 +253,40 @@ async function executeAction(
           }),
         });
         return r.ok;
+      }
+      case "saveRecurring": {
+        const r = await fetch(`${SERVER_URL}/data/recurring/${action.id}`, {
+          method: "PUT",
+          headers: h,
+          signal: sig,
+          body: JSON.stringify(action.data),
+        });
+        return r.ok;
+      }
+      case "deleteRecurring": {
+        const r = await fetch(`${SERVER_URL}/data/recurring/${action.id}`, {
+          method: "DELETE",
+          headers: h,
+          signal: sig,
+        });
+        return r.ok || r.status === 404;
+      }
+      case "saveInvestment": {
+        const r = await fetch(`${SERVER_URL}/data/investments/${action.id}`, {
+          method: "PUT",
+          headers: h,
+          signal: sig,
+          body: JSON.stringify(action.data),
+        });
+        return r.ok;
+      }
+      case "deleteInvestment": {
+        const r = await fetch(`${SERVER_URL}/data/investments/${action.id}`, {
+          method: "DELETE",
+          headers: h,
+          signal: sig,
+        });
+        return r.ok || r.status === 404;
       }
       default:
         return false;
@@ -448,6 +516,78 @@ export const remoteAPI = {
     queue.push(token, { type: "deleteForecast", id });
     return false;
   },
+
+  // ── Récurrentes — upsert whole-object (le client garde l'id source de vérité) ──
+  async saveRecurring(
+    token: string,
+    id: string,
+    data: RecurringExpensePayload,
+  ): Promise<boolean> {
+    try {
+      const r = await fetch(`${SERVER_URL}/data/recurring/${id}`, {
+        method: "PUT",
+        headers: this.h(token),
+        signal: AbortSignal.timeout(5000),
+        body: JSON.stringify(data),
+      });
+      if (r.ok) return true;
+    } catch {
+      /* réseau KO */
+    }
+    queue.push(token, { type: "saveRecurring", id, data });
+    return false;
+  },
+
+  async deleteRecurring(token: string, id: string): Promise<boolean> {
+    try {
+      const r = await fetch(`${SERVER_URL}/data/recurring/${id}`, {
+        method: "DELETE",
+        headers: this.h(token),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (r.ok || r.status === 404) return true;
+    } catch {
+      /* réseau KO */
+    }
+    queue.push(token, { type: "deleteRecurring", id });
+    return false;
+  },
+
+  // ── Investissements — upsert whole-object ────────────────────────────────────
+  async saveInvestment(
+    token: string,
+    id: string,
+    data: InvestmentPayload,
+  ): Promise<boolean> {
+    try {
+      const r = await fetch(`${SERVER_URL}/data/investments/${id}`, {
+        method: "PUT",
+        headers: this.h(token),
+        signal: AbortSignal.timeout(5000),
+        body: JSON.stringify(data),
+      });
+      if (r.ok) return true;
+    } catch {
+      /* réseau KO */
+    }
+    queue.push(token, { type: "saveInvestment", id, data });
+    return false;
+  },
+
+  async deleteInvestment(token: string, id: string): Promise<boolean> {
+    try {
+      const r = await fetch(`${SERVER_URL}/data/investments/${id}`, {
+        method: "DELETE",
+        headers: this.h(token),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (r.ok || r.status === 404) return true;
+    } catch {
+      /* réseau KO */
+    }
+    queue.push(token, { type: "deleteInvestment", id });
+    return false;
+  },
 };
 
 // ── authAPI ────────────────────────────────────────────────────────────────────
@@ -616,6 +756,8 @@ export function createStorage(username: string, token: string | null): Storage {
         months: { ...remote.months },
         forecastItems: { ...remote.forecastItems },
         carryOver: { ...remote.carryOver },
+        recurringExpenses: { ...(remote.recurringExpenses ?? {}) },
+        investments: { ...(remote.investments ?? {}) },
       };
 
       for (const entry of pending) {
@@ -680,6 +822,22 @@ export function createStorage(username: string, token: string | null): Storage {
               savings: a.savings,
             };
           }
+        } else if (a.type === "saveRecurring") {
+          if (!merged.recurringExpenses) merged.recurringExpenses = {};
+          merged.recurringExpenses[a.id] = {
+            id: a.id,
+            ...a.data,
+            createdAt:
+              merged.recurringExpenses[a.id]?.createdAt ??
+              new Date().toISOString(),
+          };
+        } else if (a.type === "deleteRecurring") {
+          if (merged.recurringExpenses) delete merged.recurringExpenses[a.id];
+        } else if (a.type === "saveInvestment") {
+          if (!merged.investments) merged.investments = {};
+          merged.investments[a.id] = { id: a.id, ...a.data } as Investment;
+        } else if (a.type === "deleteInvestment") {
+          if (merged.investments) delete merged.investments[a.id];
         }
       }
 
@@ -751,6 +909,8 @@ export function createStorage(username: string, token: string | null): Storage {
         months: { ...remote.months },
         forecastItems: { ...remote.forecastItems },
         carryOver: { ...remote.carryOver },
+        recurringExpenses: { ...(remote.recurringExpenses ?? {}) },
+        investments: { ...(remote.investments ?? {}) },
       };
       for (const entry of pending) {
         const a = entry.action;
@@ -812,6 +972,22 @@ export function createStorage(username: string, token: string | null): Storage {
               salary: a.salary,
               savings: a.savings,
             };
+        } else if (a.type === "saveRecurring") {
+          if (!merged.recurringExpenses) merged.recurringExpenses = {};
+          merged.recurringExpenses[a.id] = {
+            id: a.id,
+            ...a.data,
+            createdAt:
+              merged.recurringExpenses[a.id]?.createdAt ??
+              new Date().toISOString(),
+          };
+        } else if (a.type === "deleteRecurring") {
+          if (merged.recurringExpenses) delete merged.recurringExpenses[a.id];
+        } else if (a.type === "saveInvestment") {
+          if (!merged.investments) merged.investments = {};
+          merged.investments[a.id] = { id: a.id, ...a.data } as Investment;
+        } else if (a.type === "deleteInvestment") {
+          if (merged.investments) delete merged.investments[a.id];
         }
       }
       saveLocal(username, merged);

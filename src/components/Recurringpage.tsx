@@ -3,6 +3,7 @@ import { CATEGORIES, getMonthKey, getMonthLabel } from "../constants";
 import type { AppData, RecurringExpense } from "../types";
 import { Section, SectionTitle, EmptyState } from "../ui/Primitives";
 import { Kpi, KpiGrid, Badge, Preview, PreviewRow } from "../ui/Investmentui";
+import { remoteAPI } from "../storage";
 
 const fmt = (n: number) =>
   n.toLocaleString("fr-FR", { maximumFractionDigits: 0 });
@@ -297,9 +298,12 @@ function RecurringCard({
 interface Props {
   appData: AppData;
   updateData: (fn: (d: AppData) => AppData) => void;
+  token?: string | null;
 }
 
-export default function RecurringPage({ appData, updateData }: Props) {
+const IS_ELECTRON = Boolean((window as any).electronAPI);
+
+export default function RecurringPage({ appData, updateData, token }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<RecurringExpense | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
@@ -311,34 +315,42 @@ export default function RecurringPage({ appData, updateData }: Props) {
   const paused = recurring.filter((r) => !r.active);
   const monthlyTotal = active.reduce((s, r) => s + r.amount, 0);
 
+  // Pousse la récurrence complète vers l'API (upsert whole-object)
+  const syncRecurring = (r: RecurringExpense) => {
+    if (IS_ELECTRON || !token) return;
+    const { id, createdAt, ...data } = r;
+    remoteAPI.saveRecurring(token, String(id), data).catch(() => {});
+  };
+
   const handleSave = (
     data: Omit<RecurringExpense, "id" | "createdAt" | "lastGeneratedMonth">,
   ) => {
+    let saved: RecurringExpense | null = null;
     updateData((d) => {
       if (!d.recurringExpenses) d.recurringExpenses = {};
       if (editTarget) {
-        d.recurringExpenses[String(editTarget.id)] = { ...editTarget, ...data };
+        saved = { ...editTarget, ...data };
+        d.recurringExpenses[String(editTarget.id)] = saved;
       } else {
         const id = `rec-${Date.now()}`;
-        d.recurringExpenses[id] = {
-          ...data,
-          id,
-          createdAt: new Date().toISOString(),
-        };
+        saved = { ...data, id, createdAt: new Date().toISOString() };
+        d.recurringExpenses[id] = saved;
       }
       return d;
     });
+    if (saved) syncRecurring(saved);
     setShowForm(false);
     setEditTarget(null);
   };
 
   const handleToggle = (r: RecurringExpense) => {
+    const updated: RecurringExpense = { ...r, active: !r.active };
     updateData((d) => {
-      if (d.recurringExpenses?.[String(r.id)]) {
-        d.recurringExpenses[String(r.id)].active = !r.active;
-      }
+      if (d.recurringExpenses?.[String(r.id)])
+        d.recurringExpenses[String(r.id)] = updated;
       return d;
     });
+    syncRecurring(updated);
   };
 
   const handleDelete = (id: string) => {
@@ -346,6 +358,8 @@ export default function RecurringPage({ appData, updateData }: Props) {
       if (d.recurringExpenses) delete d.recurringExpenses[id];
       return d;
     });
+    if (!IS_ELECTRON && token)
+      remoteAPI.deleteRecurring(token, id).catch(() => {});
     setConfirmDel(null);
   };
 
