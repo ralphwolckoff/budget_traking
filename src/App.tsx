@@ -1,36 +1,43 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getMonthKey, getMonthLabel, nextMonthKey } from "./constants";
-import { createStorage, session, remoteAPI, flushQueue } from "./storage";
-import type { AppData, PageId, Storage, CurrentUser, Expense } from "./types";
 import {
   resolveMonthSettings,
   resolveMonthInvestments,
   generateRecurringExpenses,
-} from "./types";
+  AppData,
+  CurrentUser,
+  Expense,
+  PageId,
+} from "./lib/types";
 
-import DashboardPage from "./components/DashboardPage";
-import DepensesPage from "./components/DepensesPage";
-import VisuPage from "./components/VisuPage";
-import ForecastPage from "./components/ForecastPage";
-import HistoryPage from "./components/HistoryPage";
-import AccountPage from "./components/AccountPage";
-import MonthPaginator from "./components/MonthPaginator";
-import LoginPage from "./components/LoginPage";
+import DashboardPage from "./features/dashboard/DashboardPage";
+import DepensesPage from "./features/expenses/DepensesPage";
+import VisuPage from "./features/visualization/VisuPage";
+import MonthPaginator from "./shell/MonthPaginator";
+
 import {
   EditSettingsModal,
   ConfirmModal,
   NewMonthModal,
-} from "./components/Modals";
-
-import BottomNav from "./components/BottomNav";
-import InstallBanner from "./components/InstallBanner";
-import CategoryBudgetsModal from "./components/Categorybudgetsmodal";
-import InvestmentsPage from "./components/investissement/Investmentspage";
-import PageHeader from "./components/Pageheader";
-import RecurringPage from "./components/Recurringpage";
-import Sidebar from "./components/sidebar/Sidebar";
-import SplashScreen from "./components/sidebar/SplashScreen";
-import SyncModal from "./components/sidebar/SyncModal";
+} from "./shared/Modals";
+import InstallBanner from "./shell/InstallBanner";
+import CategoryBudgetsModal from "./features/expenses/Categorybudgetsmodal";
+import PageHeader from "./shell/Pageheader";
+import Sidebar from "./shell/Sidebar";
+import ReportsModal from "./shared/Reportsmodal";
+import SearchModal from "./shared/Searchmodal";
+import BottomNav from "./shell/BottomNav";
+import AccountPage from "./features/account/AccountPage";
+import LoginPage from "./features/account/LoginPage";
+import ForecastPage from "./features/forecast/ForecastPage";
+import GoalsPage from "./features/goals/Goalspage";
+import HistoryPage from "./features/history/HistoryPage";
+import InvestmentsPage from "./features/investments/Investmentspage";
+import RecurringPage from "./features/recurring/Recurringpage";
+import { getMonthKey, nextMonthKey, getMonthLabel } from "./lib/constants";
+import { remoteAPI, flushQueue, createStorage, session } from "./lib/storage";
+import SyncModal from "./shell/SidebarSyncModal";
+import SplashScreen from "./shell/SplashScreen";
+import NotificationCenter from "./shell/Notificationcenter";
 
 const IS_ELECTRON = Boolean(window.electronAPI);
 // BottomNav visible uniquement sur mobile (écran < 768px) et hors Electron
@@ -47,7 +54,7 @@ export default function App() {
   // ── Auth ──────────────────────────────────────────────────────────────────
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [appData, setAppData] = useState<AppData | null>(null);
-  const storageRef = useRef<Storage | null>(null);
+  const storageRef = useRef<ReturnType<typeof createStorage> | null>(null);
 
   // ── Navigation ────────────────────────────────────────────────────────────
   const [activePage, setActivePage] = useState<PageId>("dashboard");
@@ -57,12 +64,17 @@ export default function App() {
   const [theme, setTheme] = useState(
     () => localStorage.getItem("bt-theme") ?? "dark",
   );
+  const [isMobile, setIsMobile] = useState(
+    !IS_ELECTRON && window.innerWidth < 768,
+  );
 
   // ── Popup / Modales ───────────────────────────────────────────────────────
   const [showUserPopup, setShowUserPopup] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showSync, setShowSync] = useState(false);
   const [showNewMonth, setShowNewMonth] = useState(false);
+  const [showReports, setShowReports] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(
     null,
   );
@@ -76,6 +88,13 @@ export default function App() {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("bt-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (IS_ELECTRON) return;
+    const handler = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
 
   // ── Génération automatique des dépenses récurrentes pour le mois en cours ──
   // Se déclenche une fois par session, dès que appData est chargé.
@@ -93,25 +112,42 @@ export default function App() {
       setRecurringNotice(label);
       setTimeout(() => setRecurringNotice(null), 6000);
 
-      // Pousser vers l'API si connecté (PWA)
       if (!IS_ELECTRON && currentUser?.token) {
-        for (const [id, r] of Object.entries(
-          result.data.recurringExpenses ?? {},
-        )) {
-          if (r.lastGeneratedMonth === currentMonthKey) {
-            const expense = result.data.months[currentMonthKey]?.find(
-              (e) => e.recurringId === id,
-            );
-            if (expense) {
-              remoteAPI
-                .addExpense(currentUser.token, currentMonthKey, {
-                  amount: expense.amount,
-                  description: expense.description,
-                  category: expense.category,
-                  date: expense.date,
-                })
-                .catch(() => {});
-            }
+        const token = currentUser.token;
+
+        // Pousse chaque dépense générée (potentiellement sur plusieurs mois)
+        for (const { monthKey, expense } of result.addedExpenses) {
+          remoteAPI
+            .addExpense(token, monthKey, {
+              amount: expense.amount,
+              description: expense.description,
+              category: expense.category,
+              date: expense.date,
+            })
+            .catch(() => {});
+        }
+
+        // Persiste lastGeneratedMonth pour chaque récurrente touchée —
+        // sinon les dépenses sont régénérées à chaque rechargement
+        const touchedIds = new Set(
+          result.addedExpenses.map((a) => a.expense.recurringId),
+        );
+        for (const id of touchedIds) {
+          const r = result.data.recurringExpenses?.[id as string];
+          if (r) {
+            remoteAPI
+              .saveRecurring(token, id as string, {
+                description: r.description,
+                category: r.category,
+                amount: r.amount,
+                dayOfMonth: r.dayOfMonth,
+                active: r.active,
+                startMonth: r.startMonth,
+                endMonth: r.endMonth,
+                lastGeneratedMonth: r.lastGeneratedMonth,
+                notes: r.notes,
+              })
+              .catch(() => {});
           }
         }
       }
@@ -618,6 +654,7 @@ export default function App() {
     recurring: "Récurrences",
     history: "Historique",
     account: "Mon compte",
+    goals: "Objectifs financiers",
   };
 
   return (
@@ -647,10 +684,19 @@ export default function App() {
         </div>
       )}
 
+      {/* Fond assombri derrière le tiroir sidebar sur mobile — clic pour fermer */}
+      {isMobile && sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[99] animate-[fadeIn_0.2s_ease-out]"
+        />
+      )}
+
       {/* ═══ SIDEBAR ═══ */}
       <Sidebar
         activePage={activePage}
         onNavigate={navigateTo}
+        isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         theme={theme}
         onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
@@ -672,12 +718,12 @@ export default function App() {
       />
 
       {/* ═══ MAIN ═══ */}
-      <main className="app-main">
+      <main className="flex-1 flex flex-col min-h-0 overflow-y-auto">
         {/* Topbar */}
-        <div className="flex items-center gap-3.5 px-6 py-3.5 bg-surface-soft border-b border-border sticky top-0 z-50 min-h-[60px]">
+        <div className="fixed flex items-center gap-3.5 px-6 py-3.5 bg-surface-soft border-b border-border sticky top-0 z-50 min-h-[60px]">
           <button
             onClick={() => setSidebarOpen((o) => !o)}
-            className="w-[34px] h-[34px] flex-shrink-0 rounded-[9px] border border-border bg-surface text-text-muted text-[0.8rem] cursor-pointer transition-colors hover:text-primary hover:border-primary"
+            className="w-[34px] h-[34px] flex-shrink-0 rounded-[9px] border-none border-border bg-surface text-text-muted text-[0.8rem] cursor-pointer transition-colors hover:text-primary hover:border-primary"
           >
             {sidebarOpen ? "◀" : "▶"}
           </button>
@@ -686,7 +732,7 @@ export default function App() {
               <button
                 onClick={navigateBack}
                 title="Retour"
-                className="flex items-center justify-center w-8 h-8 flex-shrink-0 rounded-[9px] border-[1.5px] border-border bg-surface-soft text-text text-base leading-none cursor-pointer transition-all hover:bg-surface hover:border-primary hover:text-primary hover:-translate-x-0.5"
+                className="flex items-center justify-center w-8 h-8 flex-shrink-0 rounded-[9px] border-none border-border bg-surface-soft text-text text-base leading-none cursor-pointer transition-all hover:bg-surface hover:border-primary hover:text-primary hover:-translate-x-0.5"
               >
                 ←
               </button>
@@ -696,6 +742,30 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2 ml-auto">
+            <NotificationCenter
+              appData={appData}
+              monthKey={currentMonthKey}
+              username={currentUser.username}
+              onNavigate={navigateTo}
+            />
+            {!IS_ELECTRON && currentUser.token && (
+              <>
+                <button
+                  onClick={() => setShowSearch(true)}
+                  title="Recherche globale"
+                  className="w-[34px] h-[34px] flex-shrink-0 rounded-[9px] border-none border-border bg-surface text-text-muted cursor-pointer transition-colors hover:text-primary hover:border-primary"
+                >
+                  🔍
+                </button>
+                <button
+                  onClick={() => setShowReports(true)}
+                  title="Exporter un rapport"
+                  className="w-[34px] h-[34px] flex-shrink-0 rounded-[9px] border-none border-border bg-surface text-text-muted cursor-pointer transition-colors hover:text-primary hover:border-primary"
+                >
+                  📤
+                </button>
+              </>
+            )}
             {showPaginator && (
               <MonthPaginator
                 viewMonth={viewMonth}
@@ -705,7 +775,6 @@ export default function App() {
             )}
           </div>
         </div>
-
         {/* Pages */}
         <div className="flex-1 px-7 py-6 max-w-[1300px] w-full mx-auto box-border">
           {activePage === "dashboard" && (
@@ -808,6 +877,20 @@ export default function App() {
             </div>
           )}
 
+          {activePage === "goals" && (
+            <div className="">
+              <PageHeader
+                title="🎯 Objectifs financiers"
+                subtitle="Fixez un cap, suivez votre progression"
+              />
+              <GoalsPage
+                appData={appData}
+                updateData={updateData}
+                token={currentUser.token}
+              />
+            </div>
+          )}
+
           {activePage === "recurring" && (
             <div className="">
               <PageHeader
@@ -825,8 +908,11 @@ export default function App() {
       </main>
 
       {/* Navigation mobile PWA (BottomNav) */}
-      {IS_MOBILE && (
-        <BottomNav activeTab={activePage} onChangeTab={navigateTo} />
+      {isMobile && (
+        <BottomNav
+          activeTab={activePage}
+          onChangeTab={(tabId) => navigateTo(tabId as PageId)}
+        />
       )}
 
       {/* ═══ MODALES ═══ */}
@@ -912,6 +998,24 @@ export default function App() {
           message={confirmAction.message}
           onConfirm={confirmAction.onConfirm}
           onClose={() => setConfirmAction(null)}
+        />
+      )}
+      {showReports && currentUser.token && (
+        <ReportsModal
+          viewMonth={viewMonth}
+          token={currentUser.token}
+          onClose={() => setShowReports(false)}
+        />
+      )}
+
+      {showSearch && currentUser.token && (
+        <SearchModal
+          token={currentUser.token}
+          onNavigateToMonth={(mk) => {
+            setViewMonth(mk);
+            navigateTo("depenses");
+          }}
+          onClose={() => setShowSearch(false)}
         />
       )}
     </div>

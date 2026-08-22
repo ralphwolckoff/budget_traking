@@ -8,16 +8,21 @@ import type { ReactNode } from "react";
  */
 
 // ── Section (remplace .section) ──────────────────────────────────────────────
+// Style plat par défaut : pas de bordure, juste un fond légèrement surélevé.
+// Passer bordered pour retrouver l'ancien contour (rare — cas où la section
+// doit vraiment se détacher d'un fond déjà surface-soft, ex. carte dans une carte).
 export function Section({
   children,
   className = "",
+  bordered = false,
 }: {
   children: ReactNode;
   className?: string;
+  bordered?: boolean;
 }) {
   return (
     <div
-      className={`bg-surface-soft border border-border rounded-[20px] p-[30px] ${className}`}
+      className={`bg-surface-soft rounded-[20px] p-[30px] ${bordered ? "border border-border" : ""} ${className}`}
     >
       {children}
     </div>
@@ -35,8 +40,8 @@ export function SectionTitle({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-3 text-[1.4rem] font-bold mb-[25px] text-text">
-      {icon && <span className="text-[1.8rem]">{icon}</span>}
+    <div className="flex items-center gap-3 text-[1.15rem] font-bold mb-6 text-text">
+      {icon && <span className="text-[1.4rem]">{icon}</span>}
       <span className="flex-1">{children}</span>
       {action}
     </div>
@@ -144,7 +149,7 @@ export function SelectionToolbar({
             <button
               onClick={allSelected ? onClear : onSelectAll}
               className={`flex items-center gap-1.5 py-1.5 px-3 rounded-lg border text-[0.82rem] font-semibold cursor-pointer transition-colors
-                ${allSelected ? "border-primary bg-primary/10 text-primary" : "border-border bg-surface text-text-muted hover:border-primary hover:text-text"}`}
+                  ${allSelected ? "border-primary bg-primary/10 text-primary" : "border-border bg-surface text-text-muted hover:border-primary hover:text-text"}`}
             >
               {allSelected ? "☑" : "☐"} Tout
             </button>
@@ -193,7 +198,7 @@ export function SelectionToolbar({
                 : undefined
             }
             className={`flex items-center gap-1.5 py-1.5 px-3 rounded-lg border border-success/40 bg-success/10 text-success text-[0.82rem] font-semibold cursor-pointer transition-colors hover:bg-success/20 whitespace-nowrap
-              ${paste.highlight ? "shadow-[0_0_0_2px_rgba(16,185,129,0.35)]" : ""}`}
+                ${paste.highlight ? "shadow-[0_0_0_2px_rgba(16,185,129,0.35)]" : ""}`}
           >
             📌 Coller {paste.count} {itemLabel}
             {paste.count > 1 ? "s" : ""}
@@ -226,7 +231,7 @@ export function SelectCheckbox({
     <div
       onClick={onClick}
       className={`w-5 h-5 rounded-md border-2 flex items-center justify-center text-xs font-bold cursor-pointer transition-colors flex-shrink-0 text-white hover:border-primary
-        ${checked ? "bg-primary border-primary" : "border-border"}`}
+          ${checked ? "bg-primary border-primary" : "border-border"}`}
     >
       {checked ? "✓" : ""}
     </div>
@@ -295,7 +300,7 @@ export function CategoryGrid<T extends string>({
             key={cat.id}
             onClick={() => onChange(cat.id)}
             className={`py-2.5 px-3 rounded-lg border-2 text-[0.85rem] font-semibold cursor-pointer transition-all text-center truncate
-              ${active ? "bg-gradient-to-br from-primary to-primary-dark border-primary text-white shadow-glow" : "bg-surface border-border text-text-muted hover:border-primary hover:text-text"}`}
+                ${active ? "bg-primary border-primary text-white" : "bg-surface border-border text-text-muted hover:border-primary hover:text-text"}`}
           >
             {cat.label}
           </button>

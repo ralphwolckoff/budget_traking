@@ -1,0 +1,334 @@
+import { useState, useEffect, useRef } from "react";
+import type {
+  Storage,
+  SyncStatus as SyncStatusType,
+  AppData,
+} from "../lib/types";
+import { ModalOverlay, ModalBox, ModalHeader } from "../ui/Primitives";
+import {
+  pendingQueueCount,
+  droppedActions,
+  queueEvents,
+  DroppedAction,
+} from "../lib/storage";
+
+interface Props {
+  storage: Storage;
+  onSyncDone?: (data?: AppData) => void;
+}
+
+const STATUS_CFG: Record<
+  SyncStatusType,
+  { icon: string; label: string; color: string; spin: boolean }
+> = {
+  checking: {
+    icon: "○",
+    label: "Vérification…",
+    color: "text-text-muted",
+    spin: false,
+  },
+  online: { icon: "☁", label: "En ligne", color: "text-success", spin: false },
+  syncing: { icon: "↻", label: "Sync…", color: "text-primary", spin: true },
+  synced: {
+    icon: "✓",
+    label: "Synchronisé",
+    color: "text-success",
+    spin: false,
+  },
+  offline: {
+    icon: "⚡",
+    label: "Hors ligne",
+    color: "text-warning",
+    spin: false,
+  },
+};
+
+export default function SyncStatus({ storage, onSyncDone }: Props) {
+  const [status, setStatus] = useState<SyncStatusType>("checking");
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [showModal, setShowModal] = useState(false);
+  const [pending, setPending] = useState(0);
+  const [droppedCount, setDroppedCount] = useState(0);
+  const prevOnline = useRef<boolean | null>(null);
+
+  const IS_ELECTRON = Boolean((window as any).electronAPI);
+
+  // Se tient à jour en direct sur les changements de la queue (ajout, retry,
+  // succès, abandon) — pas besoin de sonder localStorage en boucle.
+  useEffect(() => {
+    const refresh = () => {
+      setPending(pendingQueueCount());
+      setDroppedCount(droppedActions.count());
+    };
+    refresh();
+    queueEvents.addEventListener("change", refresh);
+    return () => queueEvents.removeEventListener("change", refresh);
+  }, []);
+
+  const checkServer = async (): Promise<boolean> => {
+    try {
+      const endpoint = IS_ELECTRON
+        ? "http://127.0.0.1:47291/auth/users"
+        : `${(import.meta.env.VITE_API_URL ?? "http://localhost:3001/api").replace("/api", "")}/health`;
+      const r = await fetch(endpoint, {
+        signal: AbortSignal.timeout(3000),
+        cache: "no-store",
+      });
+      return r.ok;
+    } catch {
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      const online = await checkServer();
+      if (cancelled) return;
+      if (online && prevOnline.current === false) {
+        prevOnline.current = true;
+        handleSync();
+        return;
+      }
+      prevOnline.current = online;
+      setStatus((prev) =>
+        prev === "syncing" ? prev : online ? "online" : "offline",
+      );
+    };
+    run();
+    const id = setInterval(run, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  const handleSync = async () => {
+    if (!storage) return;
+    setStatus("syncing");
+    try {
+      const result = await storage.sync();
+      if (result.synced) {
+        setStatus("synced");
+        setLastSync(new Date());
+        onSyncDone?.(result.data);
+        setTimeout(() => setStatus("online"), 3000);
+      } else {
+        setStatus("offline");
+      }
+    } catch {
+      setStatus("offline");
+    }
+  };
+
+  const c = STATUS_CFG[status];
+  // Alerte visuelle si des changements ont été définitivement perdus —
+  // le bouton passe en rouge peu importe le statut réseau, pour ne pas
+  // se faire oublier derrière un "En ligne" rassurant.
+  const hasIssue = droppedCount > 0;
+
+  return (
+    <>
+      <button
+        onClick={() => setShowModal(true)}
+        title="Statut de synchronisation"
+        className={`flex items-center gap-1 text-[0.72rem] font-semibold bg-transparent border-none cursor-pointer p-0 transition-opacity hover:opacity-80 ${hasIssue ? "text-danger" : c.color}`}
+      >
+        <span
+          className={`text-[0.75rem] leading-none ${c.spin ? "animate-spin" : ""}`}
+        >
+          {hasIssue ? "⚠" : c.icon}
+        </span>
+        <span className="opacity-90">
+          {hasIssue
+            ? `${droppedCount} échec${droppedCount > 1 ? "s" : ""}`
+            : c.label}
+        </span>
+        {pending > 0 && !hasIssue && (
+          <span className="text-[0.65rem] bg-primary/15 text-primary rounded-full px-1.5 py-0.5 font-bold">
+            {pending}
+          </span>
+        )}
+      </button>
+      {showModal && (
+        <SyncModal
+          status={status}
+          lastSync={lastSync}
+          pending={pending}
+          dropped={droppedActions.load()}
+          onSync={handleSync}
+          onClearDropped={() => {
+            droppedActions.clear();
+            setDroppedCount(0);
+          }}
+          onClose={() => setShowModal(false)}
+        />
+      )}
+    </>
+  );
+}
+
+interface SyncModalProps {
+  status: SyncStatusType;
+  lastSync: Date | null;
+  pending: number;
+  dropped: DroppedAction[];
+  onSync: () => void;
+  onClearDropped: () => void;
+  onClose: () => void;
+}
+
+const STATUS_DOT: Record<SyncStatusType, string> = {
+  online: "bg-success shadow-[0_0_8px_var(--success)]",
+  offline: "bg-warning",
+  syncing: "bg-primary",
+  synced: "bg-success",
+  checking: "bg-border",
+};
+const STATUS_BOX: Record<SyncStatusType, string> = {
+  online: "bg-success/[0.06] border-success/25",
+  offline: "bg-warning/[0.06] border-warning/25",
+  syncing: "bg-primary/[0.06] border-primary/25",
+  synced: "bg-success/[0.06] border-success/25",
+  checking: "bg-surface border-border",
+};
+
+function SyncModal({
+  status,
+  lastSync,
+  pending,
+  dropped,
+  onSync,
+  onClearDropped,
+  onClose,
+}: SyncModalProps) {
+  const isSyncing = status === "syncing";
+
+  const title = {
+    online: "Serveur connecté",
+    offline: "Serveur inaccessible",
+    syncing: "Synchronisation en cours…",
+    synced: "Données synchronisées",
+    checking: "Vérification…",
+  }[status];
+
+  const sub = {
+    online: "Vos données sont sauvegardées en temps réel",
+    offline: "Les données sont sauvegardées localement uniquement",
+    syncing: "Envoi des données locales vers le serveur…",
+    synced: lastSync
+      ? `Dernière sync : ${lastSync.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`
+      : "Synchronisé avec succès",
+    checking: "Tentative de connexion au serveur…",
+  }[status];
+
+  return (
+    <ModalOverlay onClose={onClose}>
+      <ModalBox maxWidth="420px">
+        <ModalHeader title="☁️ Synchronisation" onClose={onClose} />
+
+        <div className="flex flex-col gap-4">
+          <div
+            className={`flex items-center gap-3.5 py-4 px-4 rounded-xl border-[1.5px] ${STATUS_BOX[status]}`}
+          >
+            <div
+              className={`w-3 h-3 rounded-full flex-shrink-0 ${STATUS_DOT[status]} ${isSyncing ? "animate-pulse" : ""}`}
+            />
+            <div>
+              <div className="text-[0.9rem] font-bold text-text">{title}</div>
+              <div className="text-[0.78rem] text-text-muted mt-0.5">{sub}</div>
+            </div>
+          </div>
+
+          {/* Changements en attente d'envoi — informatif, pas une alerte */}
+          {pending > 0 && (
+            <div className="flex items-center gap-2.5 py-2.5 px-3.5 rounded-lg bg-primary/[0.06] text-primary text-[0.82rem]">
+              <span>📤</span>
+              <span>
+                {pending} changement{pending > 1 ? "s" : ""} en attente d'envoi
+              </span>
+            </div>
+          )}
+
+          {/* Échecs définitifs — alerte franche, l'utilisateur doit le voir */}
+          {dropped.length > 0 && (
+            <div className="flex flex-col gap-2.5 py-3.5 px-3.5 rounded-xl bg-danger/[0.06] border border-danger/25">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-danger text-[0.85rem] font-bold">
+                  <span>⚠️</span>
+                  <span>
+                    {dropped.length} changement{dropped.length > 1 ? "s" : ""}{" "}
+                    non synchronisé{dropped.length > 1 ? "s" : ""}
+                  </span>
+                </div>
+                <button
+                  onClick={onClearDropped}
+                  className="text-[0.72rem] text-text-muted hover:text-text bg-transparent border-none cursor-pointer underline"
+                >
+                  Ignorer
+                </button>
+              </div>
+              <p className="text-[0.78rem] text-text-muted">
+                Ces changements ont échoué après plusieurs tentatives (souvent
+                une longue coupure réseau) et ne seront plus réessayés :
+              </p>
+              <div className="flex flex-col gap-1 max-h-[140px] overflow-y-auto">
+                {dropped.map((d) => (
+                  <div
+                    key={d.id}
+                    className="text-[0.78rem] text-text bg-surface rounded-md py-1.5 px-2.5"
+                  >
+                    {d.description}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-3 py-3.5 px-3.5 rounded-xl bg-surface">
+            <div className="flex items-start gap-2.5 text-[0.82rem]">
+              <span className="text-base flex-shrink-0 mt-0.5">🔄</span>
+              <div>
+                <strong className="block text-text font-bold mb-0.5">
+                  Synchronisation automatique
+                </strong>
+                <div className="text-text-muted">
+                  Vérification toutes les 8 secondes
+                </div>
+              </div>
+            </div>
+            {lastSync && (
+              <div className="flex items-start gap-2.5 text-[0.82rem]">
+                <span className="text-base flex-shrink-0 mt-0.5">🕐</span>
+                <div>
+                  <strong className="block text-text font-bold mb-0.5">
+                    Dernière synchronisation
+                  </strong>
+                  <div className="text-text-muted">
+                    {lastSync.toLocaleString("fr-FR", {
+                      dateStyle: "short",
+                      timeStyle: "short",
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2.5 flex-wrap [&>button]:flex-1 [&>button]:min-w-[120px]">
+            <button
+              className="btn btn-primary"
+              onClick={onSync}
+              disabled={isSyncing}
+            >
+              {isSyncing ? "↻ Synchronisation…" : "🔄 Synchroniser maintenant"}
+            </button>
+            <button className="btn btn-secondary" onClick={onClose}>
+              Fermer
+            </button>
+          </div>
+        </div>
+      </ModalBox>
+    </ModalOverlay>
+  );
+}

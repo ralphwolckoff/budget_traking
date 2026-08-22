@@ -31,9 +31,7 @@ export function Kpi({
 }) {
   const isSm = size === "sm";
   return (
-    <div
-      className={`bg-surface-soft border border-border rounded-2xl ${isSm ? "p-3" : "p-4"}`}
-    >
+    <div className={`bg-surface-soft rounded-2xl ${isSm ? "p-3" : "p-4"}`}>
       <div
         className={`uppercase tracking-wide text-text-muted ${isSm ? "text-[0.68rem] mb-1" : "text-xs mb-1.5"}`}
       >
@@ -117,7 +115,7 @@ export function SubTabs<T extends string>({
             key={tab.id}
             onClick={() => onChange(tab.id)}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-sm font-semibold cursor-pointer transition-all
-              ${isActive ? "bg-primary text-white shadow-[0_3px_10px_var(--glow)]" : "text-text-muted hover:bg-surface-soft hover:text-text"}`}
+              ${isActive ? "bg-primary text-white" : "text-text-muted hover:bg-surface-soft hover:text-text"}`}
           >
             <span className="text-base">{tab.icon}</span>
             <span className="hidden sm:inline">{tab.label}</span>
@@ -171,7 +169,7 @@ export function TypeGrid<T extends string>({
 // ── Bloc preview de calcul (aperçu gain/valeur finale...) ───────────────────────
 export function Preview({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-2 p-3.5 rounded-xl bg-surface border border-border">
+    <div className="flex flex-col gap-2 p-3.5 rounded-xl bg-surface">
       {children}
     </div>
   );
@@ -281,7 +279,7 @@ export function TopRow({
 }) {
   const positive = !gain.startsWith("-");
   return (
-    <div className="grid grid-cols-[32px_28px_1fr_90px_90px_70px] items-center gap-2 py-2.5 px-3 bg-surface rounded-xl border border-border text-sm">
+    <div className="grid grid-cols-[32px_28px_1fr_90px_90px_70px] items-center gap-2 py-2.5 px-3 bg-surface rounded-xl text-sm">
       <div
         className={`font-extrabold text-sm text-center ${rankColor[rank] ?? "text-text-muted"}`}
       >
@@ -494,7 +492,7 @@ export function ListTotal({
 // ── Panneau d'ajout repliable (formulaires courts) ───────────────────────────────
 export function AddPanel({ children }: { children: ReactNode }) {
   return (
-    <div className="mt-2.5 p-3.5 rounded-xl bg-surface border border-border flex flex-col gap-2.5">
+    <div className="mt-2.5 p-3.5 rounded-xl bg-surface flex flex-col gap-2.5">
       {children}
     </div>
   );
@@ -553,7 +551,7 @@ export function DocRow({
   onDelete: () => void;
 }) {
   return (
-    <div className="flex items-center gap-2.5 py-2 px-2.5 bg-surface rounded-lg border border-border">
+    <div className="flex items-center gap-2.5 py-2 px-2.5 bg-surface rounded-lg">
       <span className="text-lg flex-shrink-0">📄</span>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-bold text-text truncate">{name}</div>
