@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { remoteAPI } from "../lib/storage";
 import { getMonthLabel } from "../lib/constants";
-import type { ExpenseSearchResult } from "../lib/types";
+import { remoteAPI } from "../lib/storage";
+import { ExpenseSearchResult } from "../lib/types";
 
 interface Props {
   token: string;
-  onNavigateToMonth: (monthKey: string) => void;
+  onNavigateToMonth: (monthKey: string, expenseId?: string) => void;
   onClose: () => void;
 }
 
@@ -46,7 +46,7 @@ export default function SearchModal({
 
   return (
     <div className="fixed inset-0 z-[600] flex items-start justify-center bg-black/60 p-4 pt-[8vh]">
-      <div className="bg-surface rounded-2xl w-full max-w-[560px] max-h-[80vh] flex flex-col">
+      <div className="bg-surface border border-border rounded-2xl w-full max-w-[560px] max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between p-5 pb-3">
           <h2 className="text-lg font-bold text-text">🔍 Recherche globale</h2>
           <button
@@ -115,10 +115,10 @@ export default function SearchModal({
                   <button
                     key={r.id}
                     onClick={() => {
-                      onNavigateToMonth(r.monthKey);
+                      onNavigateToMonth(r.monthKey, r.id);
                       onClose();
                     }}
-                    className="text-left grid grid-cols-[80px_1fr_auto] items-center gap-2 py-2 px-2.5 bg-surface-soft rounded-lg hover:bg-surface transition-colors cursor-pointer"
+                    className="text-left grid grid-cols-[80px_1fr_auto] items-center gap-2 py-2 px-2.5 bg-surface-soft border border-border rounded-lg hover:border-primary transition-colors cursor-pointer"
                   >
                     <span className="text-[0.7rem] text-text-muted">
                       {fmtD(r.date)}

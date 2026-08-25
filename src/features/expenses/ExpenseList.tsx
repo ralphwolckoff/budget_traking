@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { CATEGORIES, getMonthLabel } from "../../lib/constants";
 import type { Expense } from "../../lib/types";
 import { EmptyState } from "../../ui/Primitives";
@@ -51,6 +51,9 @@ interface ListProps {
     sourceMonth: string,
     mode: "copy" | "cut",
   ) => void;
+  // ── Mise en évidence depuis la recherche globale ────────────────────────────
+  highlightExpenseId?: string | number | null;
+  onHighlightConsumed?: () => void;
 }
 
 export default function ExpenseList({
@@ -61,6 +64,8 @@ export default function ExpenseList({
   onDelete,
   onDeleteMany,
   onPaste,
+  highlightExpenseId,
+  onHighlightConsumed,
 }: ListProps) {
   const [detailExpense, setDetailExpense] = useState<Expense | null>(null);
   const [view, setView] = useState<"chrono" | "category">("chrono");
@@ -69,6 +74,56 @@ export default function ExpenseList({
   const [clipboard, setClipboard] = useState<ClipboardEntry | null>(
     globalClipboard,
   );
+  const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
+
+  // ── Surbrillance temporaire d'une dépense (venant d'un clic en recherche) ────
+  const [pulseId, setPulseId] = useState<string | number | null>(null);
+  const itemRefs = useRef<Map<string | number, HTMLDivElement>>(new Map());
+  const registerItemRef = useCallback(
+    (id: string | number, el: HTMLDivElement | null) => {
+      if (el) itemRefs.current.set(id, el);
+      else itemRefs.current.delete(id);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (highlightExpenseId == null) return;
+
+    // Un filtre de tag actif pourrait masquer la dépense visée — on l'efface.
+    setActiveTagFilter(null);
+
+    // Petit délai pour laisser le DOM se remettre à jour (filtre effacé,
+    // groupe de catégorie ouvert) avant de chercher l'élément et scroller.
+    const t = setTimeout(() => {
+      const el = itemRefs.current.get(highlightExpenseId);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        setPulseId(highlightExpenseId);
+        setTimeout(() => {
+          setPulseId(null);
+          onHighlightConsumed?.();
+        }, 2200);
+      } else {
+        onHighlightConsumed?.();
+      }
+    }, 120);
+
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightExpenseId]);
+
+  // Tous les tags présents ce mois-ci, triés par fréquence décroissante —
+  // les plus utilisés apparaissent en premier dans la barre de filtres.
+  const availableTags = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const e of expenses) {
+      for (const t of e.tags ?? []) {
+        counts.set(t, (counts.get(t) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t);
+  }, [expenses]);
 
   const toggleSelect = useCallback((id: number | string) => {
     setSelected((prev) => {
@@ -120,7 +175,10 @@ export default function ExpenseList({
     }
   };
 
-  const sorted = sortExpenses(expenses, sortId);
+  const tagFiltered = activeTagFilter
+    ? expenses.filter((e) => (e.tags ?? []).includes(activeTagFilter))
+    : expenses;
+  const sorted = sortExpenses(tagFiltered, sortId);
   const hasSelection = selected.size > 0;
   const cb = clipboard ?? globalClipboard;
   const isPasteFromOtherMonth = cb && cb.sourceMonth !== viewMonth;
@@ -223,6 +281,33 @@ export default function ExpenseList({
         </div>
       </div>
 
+      {/* ── Filtre par tag — n'apparaît que s'il existe des tags ce mois-ci ── */}
+      {availableTags.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 mb-3.5">
+          <span className="text-[0.78rem] text-text-muted mr-1">🏷️ Tags :</span>
+          {availableTags.map((tag) => (
+            <button
+              key={tag}
+              onClick={() =>
+                setActiveTagFilter((cur) => (cur === tag ? null : tag))
+              }
+              className={`py-1 px-2.5 rounded-full text-[0.76rem] font-medium cursor-pointer transition-colors
+                ${activeTagFilter === tag ? "bg-primary text-white" : "bg-surface-soft text-text-muted hover:text-text"}`}
+            >
+              {tag}
+            </button>
+          ))}
+          {activeTagFilter && (
+            <button
+              onClick={() => setActiveTagFilter(null)}
+              className="text-[0.74rem] text-text-muted hover:text-text bg-transparent border-none cursor-pointer underline"
+            >
+              Effacer
+            </button>
+          )}
+        </div>
+      )}
+
       {/* ── Contrôles vue/tri — pilules plates ── */}
       {expenses.length > 0 && (
         <div className="flex flex-wrap items-center gap-2.5 mb-3.5">
@@ -259,7 +344,7 @@ export default function ExpenseList({
       )}
 
       {/* ── Liste ── */}
-      {expenses.length > 0 && (
+      {sorted.length > 0 ? (
         <div className="max-h-[500px] overflow-y-auto mt-2.5">
           {view === "category" ? (
             <GroupedView
@@ -268,6 +353,9 @@ export default function ExpenseList({
               onDelete={onDelete}
               onToggleSelect={toggleSelect}
               onViewDetail={setDetailExpense}
+              pulseId={pulseId}
+              registerItemRef={registerItemRef}
+              forceOpenExpenseId={highlightExpenseId}
             />
           ) : (
             <ChronoView
@@ -276,10 +364,17 @@ export default function ExpenseList({
               onDelete={onDelete}
               onToggleSelect={toggleSelect}
               onViewDetail={setDetailExpense}
+              pulseId={pulseId}
+              registerItemRef={registerItemRef}
             />
           )}
         </div>
-      )}
+      ) : activeTagFilter ? (
+        <EmptyState
+          icon="🏷️"
+          title={`Aucune dépense avec le tag "${activeTagFilter}"`}
+        />
+      ) : null}
 
       {expenses.length === 0 && cb && (
         <EmptyState icon="📋" title="Aucune dépense ce mois-ci">
@@ -302,6 +397,8 @@ interface InternalListProps {
   onDelete: (id: number | string) => void;
   onToggleSelect: (id: number | string) => void;
   onViewDetail: (exp: Expense) => void;
+  pulseId?: string | number | null;
+  registerItemRef?: (id: string | number, el: HTMLDivElement | null) => void;
 }
 
 function ChronoView({
@@ -310,6 +407,8 @@ function ChronoView({
   onDelete,
   onToggleSelect,
   onViewDetail,
+  pulseId,
+  registerItemRef,
 }: InternalListProps) {
   return (
     <>
@@ -321,6 +420,8 @@ function ChronoView({
           onDelete={onDelete}
           onToggleSelect={onToggleSelect}
           onViewDetail={onViewDetail}
+          isPulsing={pulseId === exp.id}
+          registerRef={registerItemRef}
         />
       ))}
     </>
@@ -333,8 +434,18 @@ function GroupedView({
   onDelete,
   onToggleSelect,
   onViewDetail,
-}: InternalListProps) {
+  pulseId,
+  registerItemRef,
+  forceOpenExpenseId,
+}: InternalListProps & { forceOpenExpenseId?: string | number | null }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  // Catégorie à forcer ouverte si la dépense mise en évidence s'y trouve
+  // (même si l'utilisateur avait replié ce groupe manuellement).
+  const forceOpenCatId = useMemo(() => {
+    if (forceOpenExpenseId == null) return null;
+    return expenses.find((e) => e.id === forceOpenExpenseId)?.category ?? null;
+  }, [expenses, forceOpenExpenseId]);
 
   const groups = CATEGORIES.map((cat) => ({
     cat,
@@ -354,43 +465,48 @@ function GroupedView({
 
   return (
     <>
-      {groups.map(({ cat, items, total }) => (
-        <div key={cat.id} className="mb-2">
-          <div
-            onClick={() => toggle(cat.id)}
-            className="flex items-center gap-2.5 bg-surface-light rounded-xl py-3 px-4 cursor-pointer transition-colors select-none hover:bg-surface"
-          >
-            <span className="text-xl">{cat.label.split(" ")[0]}</span>
-            <span className="font-semibold text-[0.95rem] flex-1">
-              {cat.label.split(" ").slice(1).join(" ")}
-            </span>
-            <span className="text-xs text-text-muted bg-surface py-0.5 px-2 rounded-full">
-              {items.length} entrée{items.length > 1 ? "s" : ""}
-            </span>
-            <span className="font-mono font-bold text-danger text-[0.95rem]">
-              {total.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} F
-            </span>
-            <span className="text-[0.7rem] text-text-muted ml-1">
-              {collapsed[cat.id] ? "▶" : "▼"}
-            </span>
-          </div>
-          {!collapsed[cat.id] && (
-            <div className="pl-4 mt-1.5 flex flex-col gap-1.5">
-              {items.map((exp) => (
-                <ExpenseItem
-                  key={exp.id}
-                  exp={exp}
-                  compact
-                  isSelected={selected.has(exp.id)}
-                  onDelete={onDelete}
-                  onToggleSelect={onToggleSelect}
-                  onViewDetail={onViewDetail}
-                />
-              ))}
+      {groups.map(({ cat, items, total }) => {
+        const isOpen = cat.id === forceOpenCatId ? true : !collapsed[cat.id];
+        return (
+          <div key={cat.id} className="mb-2">
+            <div
+              onClick={() => toggle(cat.id)}
+              className="flex items-center gap-2.5 bg-surface-light rounded-xl py-3 px-4 cursor-pointer transition-colors select-none hover:bg-surface"
+            >
+              <span className="text-xl">{cat.label.split(" ")[0]}</span>
+              <span className="font-semibold text-[0.95rem] flex-1">
+                {cat.label.split(" ").slice(1).join(" ")}
+              </span>
+              <span className="text-xs text-text-muted bg-surface py-0.5 px-2 rounded-full">
+                {items.length} entrée{items.length > 1 ? "s" : ""}
+              </span>
+              <span className="font-mono font-bold text-danger text-[0.95rem]">
+                {total.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} F
+              </span>
+              <span className="text-[0.7rem] text-text-muted ml-1">
+                {isOpen ? "▼" : "▶"}
+              </span>
             </div>
-          )}
-        </div>
-      ))}
+            {isOpen && (
+              <div className="pl-4 mt-1.5 flex flex-col gap-1.5">
+                {items.map((exp) => (
+                  <ExpenseItem
+                    key={exp.id}
+                    exp={exp}
+                    compact
+                    isSelected={selected.has(exp.id)}
+                    onDelete={onDelete}
+                    onToggleSelect={onToggleSelect}
+                    onViewDetail={onViewDetail}
+                    isPulsing={pulseId === exp.id}
+                    registerRef={registerItemRef}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </>
   );
 }
@@ -402,6 +518,8 @@ interface ItemProps {
   onToggleSelect: (id: number | string) => void;
   onViewDetail: (exp: Expense) => void;
   compact?: boolean;
+  isPulsing?: boolean;
+  registerRef?: (id: string | number, el: HTMLDivElement | null) => void;
 }
 
 function ExpenseItem({
@@ -411,14 +529,18 @@ function ExpenseItem({
   onToggleSelect,
   onViewDetail,
   compact,
+  isPulsing,
+  registerRef,
 }: ItemProps) {
   const cat = CATEGORIES.find((c) => c.id === exp.category);
   return (
     <div
+      ref={(el) => registerRef?.(exp.id, el)}
       onClick={() => onViewDetail(exp)}
       className={`flex justify-between items-center gap-3 bg-surface rounded-xl transition-all cursor-pointer hover:translate-x-1 hover:bg-surface-soft
         ${compact ? "p-3 mb-0" : "p-4 mb-3"}
-        ${isSelected ? "bg-primary/10" : ""}`}
+        ${isSelected ? "bg-primary/10" : ""}
+        ${isPulsing ? "ring-2 ring-primary bg-primary/10 shadow-[0_0_0_4px_rgba(14,165,233,0.25)]" : ""}`}
     >
       <div
         onClick={(e) => {
@@ -442,13 +564,23 @@ function ExpenseItem({
         >
           {exp.description}
         </div>
-        <div className="text-xs text-text-muted mt-0.5 opacity-70">
-          {new Date(exp.date).toLocaleDateString("fr-FR", {
-            day: "2-digit",
-            month: "short",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+        <div className="flex items-center gap-2 flex-wrap mt-0.5">
+          <span className="text-xs text-text-muted opacity-70">
+            {new Date(exp.date).toLocaleDateString("fr-FR", {
+              day: "2-digit",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+          {(exp.tags ?? []).map((tag) => (
+            <span
+              key={tag}
+              className="text-[0.68rem] bg-primary/10 text-primary rounded-full px-1.5 py-0.5 font-medium"
+            >
+              {tag}
+            </span>
+          ))}
         </div>
       </div>
       <div className="text-xl font-bold font-mono text-danger mr-1 whitespace-nowrap flex-shrink-0">

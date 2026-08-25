@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CATEGORIES, getMonthKey, getMonthLabel } from "../../lib/constants";
 import { SectionTitle, CategoryGrid } from "../../ui/Primitives";
+import TagInput from "../../ui/Taginput";
 
 interface Props {
   targetMonth: string;
@@ -9,9 +10,11 @@ interface Props {
     description: string;
     category: string;
     date: string;
+    tags?: string[];
   }) => void;
   onOpenSettings: () => void;
   onOpenCatBudgets?: () => void;
+  onOpenImport?: () => void;
   onExport: () => void;
   onNewMonth: () => void;
 }
@@ -21,6 +24,7 @@ export default function AddExpenseForm({
   onAdd,
   onOpenSettings,
   onOpenCatBudgets,
+  onOpenImport,
   onExport,
   onNewMonth,
 }: Props) {
@@ -28,6 +32,7 @@ export default function AddExpenseForm({
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("alimentation");
   const [customDate, setCustomDate] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const [formError, setFormError] = useState("");
 
   const currentMonthKey = getMonthKey();
@@ -48,15 +53,29 @@ export default function AddExpenseForm({
       const [y, m] = targetMonth.split("-").map(Number);
       date = new Date(y, m, 0, 12, 0, 0).toISOString();
     }
-    onAdd({ amount: amt, description: description.trim(), category, date });
+    onAdd({
+      amount: amt,
+      description: description.trim(),
+      category,
+      date,
+      tags: tags.length > 0 ? tags : undefined,
+    });
     setAmount("");
     setDescription("");
     setCustomDate("");
     setCategory("alimentation");
+    setTags([]);
   };
 
   const handleKey = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") handleAdd();
+    // Ne pas déclencher l'ajout sur Entrée si le focus est dans le champ de
+    // tags — Entrée y sert à valider un tag, pas à soumettre le formulaire.
+    if (
+      e.key === "Enter" &&
+      (e.target as HTMLElement).dataset.tagInput !== "true"
+    ) {
+      handleAdd();
+    }
   };
 
   return (
@@ -109,6 +128,17 @@ export default function AddExpenseForm({
         />
       </div>
 
+      <div className="input-group">
+        <label className="input-label">
+          Tags <span className="text-text-muted font-normal">(optionnel)</span>
+        </label>
+        <TagInput
+          tags={tags}
+          onChange={setTags}
+          placeholder="Ex: urgent, remboursable…"
+        />
+      </div>
+
       {isPastMonth && (
         <div className="input-group">
           <label className="input-label">Date (optionnel)</label>
@@ -148,6 +178,11 @@ export default function AddExpenseForm({
           <button className="btn btn-secondary" onClick={onExport}>
             📥 Exporter
           </button>
+          {onOpenImport && (
+            <button className="btn btn-secondary" onClick={onOpenImport}>
+              📤 Importer CSV
+            </button>
+          )}
           <button className="btn btn-warning" onClick={onNewMonth}>
             🗓️ Nouveau Mois
           </button>
@@ -159,6 +194,11 @@ export default function AddExpenseForm({
           <button className="btn btn-secondary" onClick={onExport}>
             📥 Exporter ce mois
           </button>
+          {onOpenImport && (
+            <button className="btn btn-secondary" onClick={onOpenImport}>
+              📤 Importer CSV
+            </button>
+          )}
         </div>
       )}
     </>

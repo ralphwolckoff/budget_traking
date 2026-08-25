@@ -7,7 +7,10 @@ interface Props {
   appData: AppData;
   monthKey: string;
   username: string;
-  onNavigate: (page: PageId) => void;
+  onNavigate: (
+    page: PageId,
+    opts?: { monthKey?: string; categoryId?: string },
+  ) => void;
 }
 
 const SEVERITY_STYLE: Record<
@@ -131,7 +134,10 @@ export default function NotificationCenter({
                       className={`flex-1 min-w-0 ${n.targetPage ? "cursor-pointer" : ""}`}
                       onClick={() => {
                         if (n.targetPage) {
-                          onNavigate(n.targetPage);
+                          onNavigate(n.targetPage, {
+                            monthKey: n.monthKey,
+                            categoryId: n.categoryId,
+                          });
                           setOpen(false);
                         }
                       }}

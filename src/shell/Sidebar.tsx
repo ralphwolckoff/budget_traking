@@ -16,7 +16,7 @@ import {
 import { getMonthLabel } from "../lib/constants";
 import type { PageId, Storage, CurrentUser } from "../lib/types";
 import SyncStatus from "./SyncStatus";
-import UserPopup from "../shell/UserPopup";
+import UserPopup from "./UserPopup";
 
 const NAV: { id: PageId; icon: typeof LayoutDashboard; label: string }[] = [
   { id: "dashboard", icon: LayoutDashboard, label: "Tableau de bord" },
@@ -105,7 +105,7 @@ export default function Sidebar({
       {/* ── Header ── */}
       <div className="flex items-center gap-3 px-5 pt-6 pb-[18px]">
         <img
-          src="/buildstack-logo.svg"
+          src={`${import.meta.env.BASE_URL}buildstack-logo.svg`}
           alt="BuildStack"
           className="w-10 h-10 flex-shrink-0"
         />
@@ -241,7 +241,7 @@ export default function Sidebar({
 
         <div className="flex items-center justify-center gap-1.5 pt-1 text-[0.68rem] text-text-muted">
           <img
-            src="/buildstack-logo.svg"
+            src={`${import.meta.env.BASE_URL}buildstack-logo.svg`}
             alt="BuildStack"
             className="w-3.5 h-3.5 opacity-85"
           />

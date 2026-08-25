@@ -27,6 +27,30 @@ function notifyQueueChange() {
   queueEvents.dispatchEvent(new Event("change"));
 }
 
+// ── Session expirée / token invalide ────────────────────────────────────────────
+// Un 401 signifie "ce token ne sera JAMAIS accepté, peu importe le nombre de
+// tentatives" — contrairement à une simple coupure réseau. On distingue donc
+// explicitement ce cas pour ne pas gaspiller les 10 tentatives de retry sur
+// une cause qui ne se résoudra jamais toute seule, et pour prévenir l'UI
+// qu'une reconnexion est nécessaire.
+export const authEvents = new EventTarget();
+let sessionExpired = false;
+
+export function isSessionExpired(): boolean {
+  return sessionExpired;
+}
+
+// À appeler après un login réussi (nouveau token = on redonne sa chance)
+export function resetAuthExpired() {
+  sessionExpired = false;
+}
+
+function markAuthExpired() {
+  if (sessionExpired) return; // déjà signalé, éviter le bruit d'événements
+  sessionExpired = true;
+  authEvents.dispatchEvent(new Event("expired"));
+}
+
 // ── Types queue ────────────────────────────────────────────────────────────────
 type QueueAction =
   | {
@@ -156,6 +180,7 @@ export const session = {
     token
       ? localStorage.setItem(KEY_TOKEN, token)
       : localStorage.removeItem(KEY_TOKEN);
+    resetAuthExpired(); // nouveau token = on redonne sa chance à la sync
   },
   load(): { username: string; token: string | null } | null {
     const username = localStorage.getItem(KEY_USERNAME);
@@ -172,11 +197,12 @@ export const session = {
 // ── Actions définitivement abandonnées ─────────────────────────────────────────
 // Contrairement à la queue (temporaire, en cours de retry), ceci est un journal
 // permanent que l'utilisateur peut consulter : "ces N changements n'ont jamais
-// pu être synchronisés et ont été abandonnés après 10 tentatives".
+// pu être synchronisés et ont été abandonnés".
 export interface DroppedAction {
   id: string;
   description: string;
   droppedAt: string;
+  reason?: "expired-retries" | "session-expired" | "too-old";
 }
 export const droppedActions = {
   load(): DroppedAction[] {
@@ -255,11 +281,15 @@ async function isServerOnline(): Promise<boolean> {
 }
 
 // ── Exécuteur d'une action de queue ───────────────────────────────────────────
+// Retourne "ok" (succès), "retry" (échec temporaire, réessayer plus tard),
+// ou "unauthorized" (token invalide — inutile de réessayer).
+type ExecResult = "ok" | "retry" | "unauthorized";
+
 async function executeAction(
   token: string,
   action: QueueAction,
   onIdRemap?: (tempId: string | number, dbId: string) => void,
-): Promise<boolean> {
+): Promise<ExecResult> {
   const h: HeadersInit = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${token}`,
@@ -281,10 +311,11 @@ async function executeAction(
             date: action.date,
           }),
         });
-        if (!r.ok) return false;
+        if (r.status === 401) return "unauthorized";
+        if (!r.ok) return "retry";
         const j = await r.json();
         if (j.expense?.id && onIdRemap) onIdRemap(action.tempId, j.expense.id);
-        return true;
+        return "ok";
       }
       case "deleteExpense": {
         const r = await fetch(`${SERVER_URL}/data/expenses/${action.id}`, {
@@ -292,7 +323,8 @@ async function executeAction(
           headers: h,
           signal: sig,
         });
-        return r.ok || r.status === 404; // 404 = déjà supprimé, considéré OK
+        if (r.status === 401) return "unauthorized";
+        return r.ok || r.status === 404 ? "ok" : "retry"; // 404 = déjà supprimé, considéré OK
       }
       case "saveSettings": {
         const r = await fetch(`${SERVER_URL}/data/settings`, {
@@ -304,7 +336,8 @@ async function executeAction(
             savings: action.savings,
           }),
         });
-        return r.ok;
+        if (r.status === 401) return "unauthorized";
+        return r.ok ? "ok" : "retry";
       }
       case "saveCarryOver": {
         const r = await fetch(`${SERVER_URL}/data/carryover`, {
@@ -316,7 +349,8 @@ async function executeAction(
             amount: action.amount,
           }),
         });
-        return r.ok;
+        if (r.status === 401) return "unauthorized";
+        return r.ok ? "ok" : "retry";
       }
       case "addForecast": {
         const r = await fetch(`${SERVER_URL}/data/forecast`, {
@@ -331,10 +365,11 @@ async function executeAction(
             done: action.done,
           }),
         });
-        if (!r.ok) return false;
+        if (r.status === 401) return "unauthorized";
+        if (!r.ok) return "retry";
         const j = await r.json();
         if (j.item?.id && onIdRemap) onIdRemap(action.tempId, j.item.id);
-        return true;
+        return "ok";
       }
       case "deleteForecast": {
         const r = await fetch(`${SERVER_URL}/data/forecast/${action.id}`, {
@@ -342,7 +377,8 @@ async function executeAction(
           headers: h,
           signal: sig,
         });
-        return r.ok || r.status === 404;
+        if (r.status === 401) return "unauthorized";
+        return r.ok || r.status === 404 ? "ok" : "retry";
       }
       case "saveMonthSettings": {
         const r = await fetch(`${SERVER_URL}/data/month-settings`, {
@@ -355,7 +391,8 @@ async function executeAction(
             savings: action.savings,
           }),
         });
-        return r.ok;
+        if (r.status === 401) return "unauthorized";
+        return r.ok ? "ok" : "retry";
       }
       case "saveCategoryBudgets": {
         const r = await fetch(`${SERVER_URL}/data/category-budgets`, {
@@ -364,7 +401,8 @@ async function executeAction(
           signal: sig,
           body: JSON.stringify({ categoryBudgets: action.budgets }),
         });
-        return r.ok;
+        if (r.status === 401) return "unauthorized";
+        return r.ok ? "ok" : "retry";
       }
       case "saveRecurring": {
         const r = await fetch(`${SERVER_URL}/data/recurring/${action.id}`, {
@@ -373,7 +411,8 @@ async function executeAction(
           signal: sig,
           body: JSON.stringify(action.data),
         });
-        return r.ok;
+        if (r.status === 401) return "unauthorized";
+        return r.ok ? "ok" : "retry";
       }
       case "deleteRecurring": {
         const r = await fetch(`${SERVER_URL}/data/recurring/${action.id}`, {
@@ -381,7 +420,8 @@ async function executeAction(
           headers: h,
           signal: sig,
         });
-        return r.ok || r.status === 404;
+        if (r.status === 401) return "unauthorized";
+        return r.ok || r.status === 404 ? "ok" : "retry";
       }
       case "saveInvestment": {
         const r = await fetch(`${SERVER_URL}/data/investments/${action.id}`, {
@@ -390,7 +430,8 @@ async function executeAction(
           signal: sig,
           body: JSON.stringify(action.data),
         });
-        return r.ok;
+        if (r.status === 401) return "unauthorized";
+        return r.ok ? "ok" : "retry";
       }
       case "deleteInvestment": {
         const r = await fetch(`${SERVER_URL}/data/investments/${action.id}`, {
@@ -398,7 +439,8 @@ async function executeAction(
           headers: h,
           signal: sig,
         });
-        return r.ok || r.status === 404;
+        if (r.status === 401) return "unauthorized";
+        return r.ok || r.status === 404 ? "ok" : "retry";
       }
       case "saveGoal": {
         const r = await fetch(`${SERVER_URL}/data/goals/${action.id}`, {
@@ -407,7 +449,8 @@ async function executeAction(
           signal: sig,
           body: JSON.stringify(action.data),
         });
-        return r.ok;
+        if (r.status === 401) return "unauthorized";
+        return r.ok ? "ok" : "retry";
       }
       case "deleteGoal": {
         const r = await fetch(`${SERVER_URL}/data/goals/${action.id}`, {
@@ -415,13 +458,14 @@ async function executeAction(
           headers: h,
           signal: sig,
         });
-        return r.ok || r.status === 404;
+        if (r.status === 401) return "unauthorized";
+        return r.ok || r.status === 404 ? "ok" : "retry";
       }
       default:
-        return false;
+        return "retry";
     }
   } catch {
-    return false;
+    return "retry";
   }
 }
 
@@ -447,31 +491,51 @@ export async function flushQueue(
           id: entry.id,
           description: describeAction(entry.action),
           droppedAt: new Date().toISOString(),
+          reason: "too-old",
         });
         queue.remove(entry.id);
         continue;
       }
 
-      const ok = await executeAction(entry.token, entry.action, onIdRemap);
-      if (ok) {
+      const result = await executeAction(entry.token, entry.action, onIdRemap);
+
+      if (result === "ok") {
         queue.remove(entry.id);
         flushed++;
-      } else {
-        // Incrémenter les retries — après 10 échecs, abandonner ET tracer
-        const entries2 = queue.load();
-        const idx = entries2.findIndex((e) => e.id === entry.id);
-        if (idx >= 0) {
-          entries2[idx].retries++;
-          if (entries2[idx].retries >= 10) {
-            droppedActions.push({
-              id: entries2[idx].id,
-              description: describeAction(entries2[idx].action),
-              droppedAt: new Date().toISOString(),
-            });
-            entries2.splice(idx, 1);
-          }
-          queue.save(entries2);
+        continue;
+      }
+
+      if (result === "unauthorized") {
+        // Inutile de retenter — ce token ne passera jamais. On abandonne
+        // immédiatement cette action ET on arrête le flush de ce cycle pour
+        // ne pas marteler le serveur avec d'autres 401 à la chaîne.
+        markAuthExpired();
+        droppedActions.push({
+          id: entry.id,
+          description: describeAction(entry.action),
+          droppedAt: new Date().toISOString(),
+          reason: "session-expired",
+        });
+        queue.remove(entry.id);
+        break;
+      }
+
+      // result === "retry" — échec temporaire (réseau, 5xx...) : on
+      // incrémente les tentatives, abandon après 10 échecs
+      const entries2 = queue.load();
+      const idx = entries2.findIndex((e) => e.id === entry.id);
+      if (idx >= 0) {
+        entries2[idx].retries++;
+        if (entries2[idx].retries >= 10) {
+          droppedActions.push({
+            id: entries2[idx].id,
+            description: describeAction(entries2[idx].action),
+            droppedAt: new Date().toISOString(),
+            reason: "expired-retries",
+          });
+          entries2.splice(idx, 1);
         }
+        queue.save(entries2);
       }
     }
   } finally {
@@ -481,6 +545,8 @@ export async function flushQueue(
 }
 
 // ── remoteAPI — toujours tenter l'API, sinon mettre en queue ──────────────────
+// Sur 401 : jamais de queue (retry inutile), on signale juste la session
+// expirée et on renvoie un résultat "échec" au caller, comme en offline.
 export const remoteAPI = {
   h(token: string): HeadersInit {
     return {
@@ -495,6 +561,10 @@ export const remoteAPI = {
         headers: this.h(token),
         signal: AbortSignal.timeout(5000),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return null;
+      }
       if (!r.ok) return null;
       const j = await r.json();
       return j.data as AppData;
@@ -503,7 +573,7 @@ export const remoteAPI = {
     }
   },
 
-  // Toujours tenter l'appel direct. Si ça échoue → queue
+  // Toujours tenter l'appel direct. Si ça échoue → queue (sauf 401)
   async addExpense(
     token: string,
     monthKey: string,
@@ -522,6 +592,16 @@ export const remoteAPI = {
         signal: AbortSignal.timeout(5000),
         body: JSON.stringify({ monthKey, ...expense }),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        droppedActions.push({
+          id: `direct-${Date.now()}`,
+          description: `Dépense "${expense.description}" (${expense.amount} F)`,
+          droppedAt: new Date().toISOString(),
+          reason: "session-expired",
+        });
+        return null;
+      }
       if (r.ok) {
         const j = await r.json();
         return j.expense?.id ?? null;
@@ -529,7 +609,7 @@ export const remoteAPI = {
     } catch {
       /* réseau KO */
     }
-    // Échec → queue
+    // Échec réseau/serveur (pas un 401) → queue pour retry
     queue.push(token, {
       type: "addExpense",
       monthKey,
@@ -546,6 +626,10 @@ export const remoteAPI = {
         headers: this.h(token),
         signal: AbortSignal.timeout(5000),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return false;
+      }
       if (r.ok || r.status === 404) return true;
     } catch {
       /* réseau KO */
@@ -566,6 +650,10 @@ export const remoteAPI = {
         signal: AbortSignal.timeout(5000),
         body: JSON.stringify({ salary, savings }),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return false;
+      }
       if (r.ok) return true;
     } catch {
       /* réseau KO */
@@ -586,6 +674,10 @@ export const remoteAPI = {
         signal: AbortSignal.timeout(5000),
         body: JSON.stringify({ monthKey, amount }),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return false;
+      }
       if (r.ok) return true;
     } catch {
       /* réseau KO */
@@ -607,6 +699,10 @@ export const remoteAPI = {
         signal: AbortSignal.timeout(5000),
         body: JSON.stringify({ monthKey, ...item }),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return null;
+      }
       if (r.ok) {
         const j = await r.json();
         return j.item?.id ?? null;
@@ -636,6 +732,10 @@ export const remoteAPI = {
         signal: AbortSignal.timeout(5000),
         body: JSON.stringify({ monthKey, salary, savings }),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return false;
+      }
       if (r.ok) return true;
     } catch {
       /* réseau KO */
@@ -651,6 +751,10 @@ export const remoteAPI = {
         headers: this.h(token),
         signal: AbortSignal.timeout(5000),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return false;
+      }
       if (r.ok || r.status === 404) return true;
     } catch {
       /* réseau KO */
@@ -671,6 +775,10 @@ export const remoteAPI = {
         signal: AbortSignal.timeout(5000),
         body: JSON.stringify({ categoryBudgets: budgets }),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return false;
+      }
       if (r.ok) return true;
     } catch {
       /* réseau KO */
@@ -692,6 +800,10 @@ export const remoteAPI = {
         signal: AbortSignal.timeout(5000),
         body: JSON.stringify(data),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return false;
+      }
       if (r.ok) return true;
     } catch {
       /* réseau KO */
@@ -707,6 +819,10 @@ export const remoteAPI = {
         headers: this.h(token),
         signal: AbortSignal.timeout(5000),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return false;
+      }
       if (r.ok || r.status === 404) return true;
     } catch {
       /* réseau KO */
@@ -728,6 +844,10 @@ export const remoteAPI = {
         signal: AbortSignal.timeout(5000),
         body: JSON.stringify(data),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return false;
+      }
       if (r.ok) return true;
     } catch {
       /* réseau KO */
@@ -743,6 +863,10 @@ export const remoteAPI = {
         headers: this.h(token),
         signal: AbortSignal.timeout(5000),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return false;
+      }
       if (r.ok || r.status === 404) return true;
     } catch {
       /* réseau KO */
@@ -764,6 +888,10 @@ export const remoteAPI = {
         signal: AbortSignal.timeout(5000),
         body: JSON.stringify(data),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return false;
+      }
       if (r.ok) return true;
     } catch {
       /* réseau KO */
@@ -779,6 +907,10 @@ export const remoteAPI = {
         headers: this.h(token),
         signal: AbortSignal.timeout(5000),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return false;
+      }
       if (r.ok || r.status === 404) return true;
     } catch {
       /* réseau KO */
@@ -801,6 +933,10 @@ export const remoteAPI = {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(15000),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return { success: false, error: "Session expirée — reconnectez-vous" };
+      }
       if (!r.ok) return { success: false, error: "Échec du téléchargement" };
 
       const blob = await r.blob();
@@ -835,6 +971,10 @@ export const remoteAPI = {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(8000),
       });
+      if (r.status === 401) {
+        markAuthExpired();
+        return [];
+      }
       if (!r.ok) return [];
       const j = await r.json();
       return j.results ?? [];
@@ -864,7 +1004,9 @@ export const authAPI = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
-    return r.json();
+    const result = await r.json();
+    if (result.success) resetAuthExpired();
+    return result;
   },
   async listUsers(): Promise<string[]> {
     if (window.electronAPI) return window.electronAPI.authListUsers();
@@ -976,7 +1118,7 @@ export function createStorage(username: string, token: string | null): Storage {
       // Charger depuis l'API
       const remote = await remoteAPI.load(token);
       if (!remote) {
-        // Pas de réseau → données locales (qui incluent déjà les entrées en queue)
+        // Pas de réseau (ou session expirée) → données locales
         return local ?? defaultData();
       }
 
@@ -1115,8 +1257,9 @@ export function createStorage(username: string, token: string | null): Storage {
     // Cache local + déclenche un flush de queue si possible
     async save(data: AppData): Promise<void> {
       saveLocal(username, { ...data, updatedAt: new Date().toISOString() });
-      // Tentative de flush silencieux en arrière-plan si queue non vide
-      if (!window.electronAPI && token && queue.count() > 0) {
+      // Tentative de flush silencieux en arrière-plan si queue non vide,
+      // sauf si on sait déjà que la session est expirée (inutile).
+      if (!window.electronAPI && token && queue.count() > 0 && !sessionExpired) {
         flushQueue().catch(() => {});
       }
     },
@@ -1127,6 +1270,8 @@ export function createStorage(username: string, token: string | null): Storage {
       reason?: string;
     }> {
       if (!token) return { synced: false, reason: "no token" };
+      if (sessionExpired)
+        return { synced: false, reason: "session expirée — reconnectez-vous" };
 
       // 1. Flusher la queue en premier avec remap des IDs temporaires → IDs DB
       const localData = loadLocal(username);
@@ -1160,7 +1305,11 @@ export function createStorage(username: string, token: string | null): Storage {
 
       // 2. Recharger depuis l'API
       const remote = await remoteAPI.load(token);
-      if (!remote) return { synced: false, reason: "offline" };
+      if (!remote)
+        return {
+          synced: false,
+          reason: sessionExpired ? "session expirée" : "offline",
+        };
 
       // 3. S'il reste des entrées en queue après le flush (échecs partiels),
       //    les fusionner avec les données remote pour ne rien perdre

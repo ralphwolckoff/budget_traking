@@ -1,15 +1,16 @@
 // ══════════════════════════════════════════════════════════════════════════════
 // Centre de notifications — génère des alertes proactives à partir de l'état
-// actuel de l'app : plafonds de catégorie approchés/dépassés, récurrentes
-// dues bientôt, objectifs qui décrochent de leur trajectoire.
+// actuel de l'app : plafonds de catégorie approchés/dépassés (tous mois
+// confondus, pas seulement le mois en cours), récurrentes dues bientôt,
+// objectifs qui décrochent de leur trajectoire.
 //
 // Design : pur (aucun effet de bord, aucun state). Les IDs générés incluent
 // le mois concerné (ex: "budget-loyer-2026-03") donc une alerte "revit"
-// naturellement chaque mois sans logique d'expiration à gérer — si tu la
-// rejettes en mars, elle réapparaît en avril si la situation se reproduit.
+// naturellement si tu rejettes celle de mars mais que la même catégorie
+// dépasse aussi son plafond en avril — sans logique d'expiration à gérer.
 // ══════════════════════════════════════════════════════════════════════════════
 
-import { CATEGORIES, getMonthKey } from "./constants";
+import { CATEGORIES, getMonthKey, getMonthLabel } from "./constants";
 import { resolveGoalProgress } from "./types";
 import type { AppData } from "./types";
 
@@ -28,53 +29,81 @@ export interface AppNotification {
   message: string;
   // Pour permettre un clic → navigation directe vers la page concernée
   targetPage?: "depenses" | "recurring" | "goals";
+  // Mois auquel l'alerte se rapporte (utile pour trier/regrouper côté UI)
+  monthKey?: string;
+  categoryId?: string;
 }
 
 const BUDGET_WARNING_THRESHOLD = 0.8; // 80% du plafond catégorie
 const RECURRING_DUE_SOON_DAYS = 3;
+// Ne pas remonter d'alertes de plafond sur des mois trop anciens — au-delà,
+// c'est de l'historique, pas quelque chose à "traiter" maintenant.
+const BUDGET_HISTORY_MONTHS_BACK = 12;
 
 function fmt(n: number): string {
   return n.toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 }
 
-// ── Plafonds de catégorie ────────────────────────────────────────────────────
-function categoryBudgetNotifications(
-  appData: AppData,
-  monthKey: string,
-): AppNotification[] {
-  const expenses = appData.months[monthKey] ?? [];
+function monthsAgoKey(n: number): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+// ── Plafonds de catégorie — scanne tous les mois avec des dépenses ─────────────
+// Note : les plafonds (categoryBudgets) ne sont pas historisés — un seul
+// jeu de plafonds vit dans appData, appliqué tel quel à tous les mois. Un
+// changement de plafond aujourd'hui peut donc faire apparaître ou disparaître
+// des alertes sur des mois passés ; c'est un compromis assumé plutôt que
+// d'ajouter un système de versioning des plafonds.
+function categoryBudgetNotifications(appData: AppData): AppNotification[] {
   const notifs: AppNotification[] = [];
+  const oldestAllowed = monthsAgoKey(BUDGET_HISTORY_MONTHS_BACK);
 
-  for (const cat of CATEGORIES) {
-    const budget = appData.categoryBudgets?.[cat.id] ?? cat.budget;
-    if (!budget || budget <= 0) continue;
+  const monthKeys = Object.keys(appData.months)
+    .filter(
+      (mk) => mk >= oldestAllowed && (appData.months[mk]?.length ?? 0) > 0,
+    )
+    .sort((a, b) => b.localeCompare(a)); // plus récent d'abord
 
-    const spent = expenses
-      .filter((e) => e.category === cat.id)
-      .reduce((s, e) => s + Math.round(e.amount), 0);
-    if (spent === 0) continue;
+  for (const monthKey of monthKeys) {
+    const expenses = appData.months[monthKey] ?? [];
+    const isCurrent = monthKey === getMonthKey();
 
-    const pct = spent / budget;
-    const label = cat.label.split(" ").slice(1).join(" ");
+    for (const cat of CATEGORIES) {
+      const budget = appData.categoryBudgets?.[cat.id] ?? cat.budget;
+      if (!budget || budget <= 0) continue;
 
-    if (pct >= 1) {
-      notifs.push({
-        id: `budget-over-${cat.id}-${monthKey}`,
-        type: "budget_over",
-        severity: "danger",
-        title: `Plafond "${label}" dépassé`,
-        message: `${fmt(spent)} F dépensés pour un plafond de ${fmt(budget)} F ce mois-ci.`,
-        targetPage: "depenses",
-      });
-    } else if (pct >= BUDGET_WARNING_THRESHOLD) {
-      notifs.push({
-        id: `budget-warn-${cat.id}-${monthKey}`,
-        type: "budget_warning",
-        severity: "warning",
-        title: `Plafond "${label}" bientôt atteint`,
-        message: `${Math.round(pct * 100)}% du plafond utilisé (${fmt(spent)} / ${fmt(budget)} F).`,
-        targetPage: "depenses",
-      });
+      const spent = expenses
+        .filter((e) => e.category === cat.id)
+        .reduce((s, e) => s + Math.round(e.amount), 0);
+      if (spent === 0) continue;
+
+      const pct = spent / budget;
+      const label = cat.label.split(" ").slice(1).join(" ");
+      const monthSuffix = isCurrent ? "" : ` — ${getMonthLabel(monthKey)}`;
+
+      if (pct >= 1) {
+        notifs.push({
+          id: `budget-over-${cat.id}-${monthKey}`,
+          type: "budget_over",
+          severity: "danger",
+          title: `Plafond "${label}" dépassé${monthSuffix}`,
+          message: `${fmt(spent)} F dépensés pour un plafond de ${fmt(budget)} F${isCurrent ? " ce mois-ci" : ` en ${getMonthLabel(monthKey).toLowerCase()}`}.`,
+          targetPage: "depenses",
+          monthKey,
+        });
+      } else if (pct >= BUDGET_WARNING_THRESHOLD) {
+        notifs.push({
+          id: `budget-warn-${cat.id}-${monthKey}`,
+          type: "budget_warning",
+          severity: "warning",
+          title: `Plafond "${label}" bientôt atteint${monthSuffix}`,
+          message: `${Math.round(pct * 100)}% du plafond utilisé (${fmt(spent)} / ${fmt(budget)} F).`,
+          targetPage: "depenses",
+          monthKey,
+        });
+      }
     }
   }
 
@@ -82,6 +111,8 @@ function categoryBudgetNotifications(
 }
 
 // ── Récurrentes dues bientôt ─────────────────────────────────────────────────
+// Reste volontairement ancré sur "maintenant" — une récurrente "due" n'a de
+// sens que pour le futur proche, jamais pour un mois passé.
 function recurringDueNotifications(
   appData: AppData,
   monthKey: string,
@@ -115,6 +146,7 @@ function recurringDueNotifications(
             ? `${fmt(r.amount)} F prévus aujourd'hui.`
             : `${fmt(r.amount)} F prévus dans ${daysUntil} jour${daysUntil > 1 ? "s" : ""}.`,
         targetPage: "recurring",
+        monthKey,
       });
     }
   }
@@ -123,6 +155,8 @@ function recurringDueNotifications(
 }
 
 // ── Objectifs qui décrochent de leur trajectoire ─────────────────────────────
+// Basé sur l'état actuel (épargne mensuelle courante), pas d'historique à
+// scanner — la notion de "mois passé" ne s'applique pas ici.
 function goalOffTrackNotifications(appData: AppData): AppNotification[] {
   const notifs: AppNotification[] = [];
   const goals = Object.values(appData.goals ?? {}).filter(
@@ -152,7 +186,7 @@ export function generateNotifications(
   monthKey: string = getMonthKey(),
 ): AppNotification[] {
   return [
-    ...categoryBudgetNotifications(appData, monthKey),
+    ...categoryBudgetNotifications(appData), // scanne tous les mois désormais
     ...recurringDueNotifications(appData, monthKey),
     ...goalOffTrackNotifications(appData),
   ];

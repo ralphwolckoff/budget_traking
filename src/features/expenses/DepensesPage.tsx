@@ -1,9 +1,10 @@
-
+import { useState } from "react";
 import { getMonthLabel } from "../../lib/constants";
 import { Expense, AppData } from "../../lib/types";
 import { Section, SectionTitle } from "../../ui/Primitives";
 import AddExpenseForm from "./AddExpenseForm";
 import ExpenseList from "./ExpenseList";
+import ImportCsvModal from "./Importcsvmodal";
 
 interface Props {
   viewMonth: string;
@@ -28,6 +29,17 @@ interface Props {
   onOpenCatBudgets?: () => void;
   onExport: () => void;
   onNewMonth: () => void;
+  onImportCsv: (
+    expenses: {
+      amount: number;
+      description: string;
+      category: string;
+      date: string;
+    }[],
+  ) => void;
+  // ── Mise en évidence depuis la recherche globale ────────────────────────────
+  highlightExpenseId?: string | number | null;
+  onHighlightConsumed?: () => void;
 }
 
 export default function DepensesPage({
@@ -42,9 +54,14 @@ export default function DepensesPage({
   onPaste,
   onOpenSettings,
   onOpenCatBudgets,
+  onImportCsv,
   onExport,
   onNewMonth,
+  highlightExpenseId,
+  onHighlightConsumed,
 }: Props) {
+    const [showImportCsv, setShowImportCsv] = useState(false);
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       {/* Section est plate par défaut désormais (voir Primitives.tsx) —
@@ -56,6 +73,7 @@ export default function DepensesPage({
           onOpenSettings={onOpenSettings}
           onOpenCatBudgets={onOpenCatBudgets}
           onExport={onExport}
+          onOpenImport={() => setShowImportCsv(true)}
           onNewMonth={onNewMonth}
         />
       </Section>
@@ -78,8 +96,17 @@ export default function DepensesPage({
           onDelete={onDelete}
           onDeleteMany={onDeleteMany}
           onPaste={onPaste}
+          highlightExpenseId={highlightExpenseId}
+          onHighlightConsumed={onHighlightConsumed}
         />
       </Section>
+      {showImportCsv && (
+        <ImportCsvModal
+          targetMonth={viewMonth}
+          onImport={onImportCsv}
+          onClose={() => setShowImportCsv(false)}
+        />
+      )}
     </div>
   );
 }

@@ -34,10 +34,17 @@ import HistoryPage from "./features/history/HistoryPage";
 import InvestmentsPage from "./features/investments/Investmentspage";
 import RecurringPage from "./features/recurring/Recurringpage";
 import { getMonthKey, nextMonthKey, getMonthLabel } from "./lib/constants";
-import { remoteAPI, flushQueue, createStorage, session } from "./lib/storage";
+import {
+  remoteAPI,
+  flushQueue,
+  createStorage,
+  session,
+  authEvents,
+} from "./lib/storage";
 import SyncModal from "./shell/SidebarSyncModal";
 import SplashScreen from "./shell/SplashScreen";
 import NotificationCenter from "./shell/Notificationcenter";
+import ImportCsvModal from "./features/expenses/Importcsvmodal";
 
 const IS_ELECTRON = Boolean(window.electronAPI);
 // BottomNav visible uniquement sur mobile (écran < 768px) et hors Electron
@@ -60,6 +67,9 @@ export default function App() {
   const [activePage, setActivePage] = useState<PageId>("dashboard");
   const [pageHistory, setPageHistory] = useState<PageId[]>([]);
   const [viewMonth, setViewMonth] = useState(getMonthKey());
+  const [highlightedExpenseId, setHighlightedExpenseId] = useState<
+    number | string | null
+  >(null);
   const [sidebarOpen, setSidebarOpen] = useState(!IS_MOBILE); // fermé par défaut sur mobile
   const [theme, setTheme] = useState(
     () => localStorage.getItem("bt-theme") ?? "dark",
@@ -83,6 +93,14 @@ export default function App() {
   const [showCatBudgets, setShowCatBudgets] = useState<boolean>(false);
   const currentMonthKey = getMonthKey();
   const isCurrentMonth = viewMonth === currentMonthKey;
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState(false);
+  const [showImportCsv, setShowImportCsv] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setSessionExpiredNotice(true);
+    authEvents.addEventListener("expired", handler);
+    return () => authEvents.removeEventListener("expired", handler);
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -180,6 +198,7 @@ export default function App() {
       const s = createStorage(username, token);
       storageRef.current = s;
       setCurrentUser({ username, token });
+      setSessionExpiredNotice(false);
       if (!IS_ELECTRON) session.save(username, token); // ← persiste la session
       const data = await s.load();
       if (!data.carryOver) data.carryOver = {};
@@ -188,6 +207,32 @@ export default function App() {
     },
     [],
   );
+
+  // const handleImportCsvExpenses = (
+  //   expenses: {
+  //     amount: number;
+  //     description: string;
+  //     category: string;
+  //     date: string;
+  //   }[],
+  // ) => {
+  //   updateData((d) => {
+  //     for (const exp of expenses) {
+  //       const mk = exp.date.slice(0, 7); // "YYYY-MM"
+  //       if (!d.months[mk]) d.months[mk] = [];
+  //       d.months[mk].unshift({ id: Date.now() + Math.random(), ...exp });
+  //     }
+  //     return d;
+  //   });
+
+  //   if (!IS_ELECTRON && currentUser?.token) {
+  //     const token = currentUser.token;
+  //     expenses.forEach((exp) => {
+  //       const mk = exp.date.slice(0, 7);
+  //       remoteAPI.addExpense(token, mk, exp).catch(() => {});
+  //     });
+  //   }
+  // };
 
   const navigateTo = useCallback((page: PageId) => {
     setActivePage((prev) => {
@@ -421,6 +466,32 @@ export default function App() {
     }
   };
 
+  const handleImportCsvExpenses = (
+    expenses: {
+      amount: number;
+      description: string;
+      category: string;
+      date: string;
+    }[],
+  ) => {
+    updateData((d) => {
+      for (const exp of expenses) {
+        const mk = exp.date.slice(0, 7); // "YYYY-MM" — chaque dépense va dans SON mois
+        if (!d.months[mk]) d.months[mk] = [];
+        d.months[mk].unshift({ id: Date.now() + Math.random(), ...exp });
+      }
+      return d;
+    });
+
+    if (!IS_ELECTRON && currentUser.token) {
+      const token = currentUser.token;
+      expenses.forEach((exp) => {
+        const mk = exp.date.slice(0, 7);
+        remoteAPI.addExpense(token, mk, exp).catch(() => {});
+      });
+    }
+  };
+
   const handleDeleteExpense = (id: number | string) => {
     setConfirmAction({
       message: "Supprimer cette dépense ?",
@@ -487,6 +558,7 @@ export default function App() {
       }
       return d;
     });
+
     // Envoyer les nouvelles dépenses à l'API
     if (!IS_ELECTRON && currentUser.token) {
       const token = currentUser.token;
@@ -684,6 +756,21 @@ export default function App() {
         </div>
       )}
 
+      {sessionExpiredNotice && (
+        <div className="fixed z-[500] flex items-center gap-2.5 py-2.5 px-4 rounded-xl bg-surface-soft border border-danger shadow-[0_8px_24px_rgba(0,0,0,0.35)] text-[0.85rem] text-text cursor-pointer bottom-[76px] left-3 right-3 md:top-4 md:left-1/2 md:right-auto md:bottom-auto md:-translate-x-1/2 md:w-auto animate-[slideDown_0.3s_ease-out]">
+          <span className="text-[1.1rem]">🔒</span>
+          <span>
+            Session expirée — vos changements ne se synchronisent plus.
+            Reconnectez-vous.
+          </span>
+          <button
+            onClick={handleLogout}
+            className="bg-danger text-white rounded-md py-1 px-2.5 text-[0.78rem] font-semibold ml-2"
+          >
+            Se reconnecter
+          </button>
+        </div>
+      )}
       {/* Fond assombri derrière le tiroir sidebar sur mobile — clic pour fermer */}
       {isMobile && sidebarOpen && (
         <div
@@ -748,7 +835,7 @@ export default function App() {
               username={currentUser.username}
               onNavigate={navigateTo}
             />
-            {!IS_ELECTRON && currentUser.token && (
+            {currentUser.token && (
               <>
                 <button
                   onClick={() => setShowSearch(true)}
@@ -779,6 +866,7 @@ export default function App() {
         <div className="flex-1 px-7 py-6 max-w-[1300px] w-full mx-auto box-border">
           {activePage === "dashboard" && (
             <DashboardPage
+              appData={appData}
               salary={salary}
               savings={savings}
               totalSpent={totalSpent}
@@ -805,6 +893,8 @@ export default function App() {
               appData={appData}
               onDeleteMany={handleDeleteMany}
               onPaste={handlePasteExpenses}
+              onImportCsv={handleImportCsvExpenses}
+              highlightExpenseId={highlightedExpenseId}
               onOpenSettings={() => setShowSettings(true)}
               onOpenCatBudgets={() => setShowCatBudgets(true)}
               onExport={handleExport}
@@ -931,6 +1021,13 @@ export default function App() {
         />
       )}
 
+      {showImportCsv && (
+        <ImportCsvModal
+          targetMonth={viewMonth}
+          onImport={handleImportCsvExpenses}
+          onClose={() => setShowImportCsv(false)}
+        />
+      )}
       {showSettings && (
         <EditSettingsModal
           salary={salary}
@@ -1011,8 +1108,9 @@ export default function App() {
       {showSearch && currentUser.token && (
         <SearchModal
           token={currentUser.token}
-          onNavigateToMonth={(mk) => {
+          onNavigateToMonth={(mk, expenseId) => {
             setViewMonth(mk);
+            setHighlightedExpenseId(expenseId as number | string | null);
             navigateTo("depenses");
           }}
           onClose={() => setShowSearch(false)}

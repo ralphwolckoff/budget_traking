@@ -22,7 +22,7 @@ export function Section({
 }) {
   return (
     <div
-      className={`bg-surface-soft rounded-[20px] p-[30px] ${bordered ? "border border-border" : ""} ${className}`}
+      className={`bg-none rounded-[20px] p-[30px]  ${className}`}
     >
       {children}
     </div>

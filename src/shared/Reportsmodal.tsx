@@ -19,7 +19,6 @@ export default function ReportsModal({ viewMonth, token, onClose }: Props) {
   const [error, setError] = useState("");
 
   const addMonthField = () => {
-    if (multiMonths.length >= 3) return;
     setMultiMonths((m) => [...m, viewMonth]);
   };
   const removeMonthField = (idx: number) => {
@@ -86,7 +85,7 @@ export default function ReportsModal({ viewMonth, token, onClose }: Props) {
                 : "bg-surface-soft text-text-muted border-border"
             }`}
           >
-            🗂️ Plusieurs mois
+            🗂️ Mois multiples
           </button>
           <button
             onClick={() => setScope("year")}
@@ -132,17 +131,15 @@ export default function ReportsModal({ viewMonth, token, onClose }: Props) {
                 )}
               </div>
             ))}
-            {multiMonths.length < 3 && (
-              <button
-                onClick={addMonthField}
-                className="btn btn-secondary btn-sm self-start"
-              >
-                + Ajouter un mois
-              </button>
-            )}
+            <button
+              onClick={addMonthField}
+              className="btn btn-secondary btn-sm self-start"
+            >
+              + Ajouter un mois
+            </button>
             <p className="text-[0.72rem] text-text-muted">
-              Jusqu'à 3 mois — leurs dépenses sont combinées dans un seul
-              fichier.
+              Ajoute autant de mois que tu veux — leurs dépenses sont combinées
+              dans un seul fichier.
             </p>
           </div>
         )}

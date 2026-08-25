@@ -107,6 +107,21 @@ export default function ExpenseDetailModal({
           )}
         </div>
 
+        {/* Tags — lecture seule pour l'instant (édition à venir avec le
+            formulaire d'ajout) */}
+        {(expense.tags ?? []).length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-5 -mt-2">
+            {expense.tags!.map((tag) => (
+              <span
+                key={tag}
+                className="text-[0.76rem] bg-primary/10 text-primary rounded-full px-2.5 py-1 font-medium"
+              >
+                🏷️ {tag}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Infos */}
         <div className="flex flex-col mb-5">
           {infoRows.map((row, i) => (

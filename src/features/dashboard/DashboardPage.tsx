@@ -1,10 +1,12 @@
+import { CATEGORIES } from "../../lib/constants";
+import { AppData, Expense, PageId } from "../../lib/types";
+import MonthTrendCard from "../../ui/Monthtrendcard";
+import { SectionTitle, EmptyState, BtnLink } from "../../ui/Primitives";
+import DashboardCards from "./DashboardCards";
 
-import DashboardCards from "./DashboardCards.tsx";
-import { BtnLink, EmptyState, SectionTitle } from "../../ui/Primitives.tsx";
-import { CATEGORIES } from "../../lib/constants.ts";
-import { Expense, PageId } from "../../lib/types.ts";
 
 interface Props {
+  appData: AppData;
   salary: number;
   savings: number;
   totalSpent: number;
@@ -36,6 +38,7 @@ function catColor(id: string) {
 }
 
 export default function DashboardPage({
+  appData,
   salary,
   savings,
   totalSpent,
@@ -44,6 +47,7 @@ export default function DashboardPage({
   monthInvestments = 0,
   monthInvestmentGains = 0,
   monthExpenses,
+  viewMonth,
   isCurrentMonth,
   onNavigate,
   onOpenSettings,
@@ -85,6 +89,9 @@ export default function DashboardPage({
         isCurrentMonth={isCurrentMonth}
         onOpenSettings={onOpenSettings}
       />
+
+      {/* Tendance vs mois précédent — masqué si rien à comparer */}
+      <MonthTrendCard appData={appData} monthKey={viewMonth} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-8">
         {/* Top catégories — plus de carte bordée, juste le contenu */}
