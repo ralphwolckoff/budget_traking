@@ -1,7 +1,8 @@
+import { Badge } from "lucide-react";
+import { useState } from "react";
 import { CATEGORIES, getCategoryBudget } from "../../lib/constants";
-import type { Expense } from "../../lib/types";
+import { Expense } from "../../lib/types";
 import { ModalOverlay, ModalBox } from "../../ui/Primitives";
-import { Badge } from "../../ui/Investmentui";
 
 interface Props {
   expense: Expense;
@@ -18,6 +19,7 @@ export default function ExpenseDetailModal({
   onClose,
   onDelete,
 }: Props) {
+  const [showFullReceipt, setShowFullReceipt] = useState(false);
   const cat = CATEGORIES.find((c) => c.id === expense.category);
   const budget = getCategoryBudget(expense.category, appData);
 
@@ -67,126 +69,167 @@ export default function ExpenseDetailModal({
   ];
 
   return (
-    <ModalOverlay onClose={onClose}>
-      <ModalBox>
-        {/* Header */}
-        <div className="flex items-center gap-3.5 mb-5">
-          <div className="text-4xl flex-shrink-0">
-            {cat?.label.split(" ")[0] ?? "📦"}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-lg font-bold text-text truncate">
-              {expense.description}
+    <>
+      <ModalOverlay onClose={onClose}>
+        <ModalBox>
+          {/* Header */}
+          <div className="flex items-center gap-3.5 mb-5">
+            <div className="text-4xl flex-shrink-0">
+              {cat?.label.split(" ")[0] ?? "📦"}
             </div>
-            <div className="text-[0.82rem] text-text-muted">
-              {cat?.label.split(" ").slice(1).join(" ") ?? expense.category}
+            <div className="flex-1 min-w-0">
+              <div className="text-lg font-bold text-text truncate">
+                {expense.description}
+              </div>
+              <div className="text-[0.82rem] text-text-muted">
+                {cat?.label.split(" ").slice(1).join(" ") ?? expense.category}
+              </div>
             </div>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex-shrink-0 rounded-lg bg-transparent text-text-muted cursor-pointer transition-colors hover:bg-surface-soft hover:text-text"
+            >
+              ✕
+            </button>
           </div>
+
+          {/* Montant — les filets haut/bas restent, ce sont des séparateurs de section */}
+          <div className="text-center py-5 mb-5 border-y border-border">
+            <div className="text-[2.4rem] font-extrabold font-mono text-text">
+              {fmt(Math.round(expense.amount))}{" "}
+              <span className="text-base font-semibold text-text-muted">
+                F CFA
+              </span>
+            </div>
+            {budget > 0 && (
+              <div className="mt-2 inline-block">
+                <Badge color={pctOfBudget > 50 ? "danger" : "success"}>
+                  {pctOfBudget.toFixed(1)}% du budget catégorie
+                </Badge>
+              </div>
+            )}
+          </div>
+
+          {/* Reçu photo — miniature cliquable pour agrandir */}
+          {expense.receiptImage && (
+            <div className="mb-5 -mt-2">
+              <button
+                onClick={() => setShowFullReceipt(true)}
+                className="flex items-center gap-3 w-full py-2.5 px-3 rounded-lg bg-surface hover:bg-surface-soft transition-colors cursor-pointer text-left"
+              >
+                <img
+                  src={expense.receiptImage}
+                  alt="Reçu"
+                  className="w-14 h-14 object-cover rounded-md flex-shrink-0"
+                />
+                <span className="flex-1 text-[0.82rem] text-text-muted">
+                  📷 Photo du reçu
+                </span>
+                <span className="text-[0.78rem] text-primary">Agrandir →</span>
+              </button>
+            </div>
+          )}
+
+          {/* Tags — lecture seule pour l'instant */}
+          {(expense.tags ?? []).length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-5">
+              {expense.tags!.map((tag) => (
+                <span
+                  key={tag}
+                  className="text-[0.76rem] bg-primary/10 text-primary rounded-full px-2.5 py-1 font-medium"
+                >
+                  🏷️ {tag}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Infos */}
+          <div className="flex flex-col mb-5">
+            {infoRows.map((row, i) => (
+              <div
+                key={i}
+                className="flex justify-between items-center py-2.5 border-b border-border/50 last:border-b-0 text-sm"
+              >
+                <span className="text-text-muted">{row.label}</span>
+                <span
+                  className={`text-right ${row.mono ? "font-mono font-bold" : "font-semibold"} ${row.muted ? "text-text-muted text-xs" : "text-text"}`}
+                >
+                  {row.value}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Barre budget catégorie */}
+          {budget > 0 && (
+            <div className="mb-5">
+              <div className="flex justify-between items-center">
+                <span className="text-[0.82rem] text-text-muted">
+                  Budget {cat?.label.split(" ").slice(1).join(" ")} ce mois
+                </span>
+                <span
+                  className={`font-mono font-bold text-[0.82rem] ${overBudget ? "text-danger" : "text-text"}`}
+                >
+                  {fmt(catTotal)} / {fmt(budget)} F
+                </span>
+              </div>
+              <div className="h-2.5 bg-surface rounded-full overflow-hidden mt-1.5">
+                <div
+                  className={`h-full rounded-full transition-[width] duration-500 ${overBudget ? "bg-danger" : pctCatUsed > 80 ? "bg-warning" : "bg-gradient-to-r from-primary to-secondary"}`}
+                  style={{ width: `${pctCatUsed}%` }}
+                />
+              </div>
+              <div className="flex justify-between mt-1.5 text-xs text-text-muted">
+                <span>{pctCatUsed.toFixed(1)}% utilisé</span>
+                <span
+                  className={`font-semibold ${overBudget ? "text-danger" : "text-success"}`}
+                >
+                  {overBudget
+                    ? `Dépassé de ${fmt(Math.abs(catRemaining))} F`
+                    : `${fmt(catRemaining)} F restants`}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="modal-actions">
+            <button className="btn btn-secondary" onClick={onClose}>
+              Fermer
+            </button>
+            <button
+              className="btn btn-danger"
+              onClick={() => {
+                onDelete(expense.id);
+                onClose();
+              }}
+            >
+              🗑️ Supprimer
+            </button>
+          </div>
+        </ModalBox>
+      </ModalOverlay>
+
+      {/* Vue plein écran du reçu — overlay séparé, au-dessus de la modale */}
+      {showFullReceipt && expense.receiptImage && (
+        <div
+          onClick={() => setShowFullReceipt(false)}
+          className="fixed inset-0 z-[1100] bg-black/90 flex items-center justify-center p-6 cursor-zoom-out"
+        >
+          <img
+            src={expense.receiptImage}
+            alt="Reçu en plein écran"
+            className="max-w-full max-h-full object-contain rounded-lg"
+          />
           <button
-            onClick={onClose}
-            className="w-8 h-8 flex-shrink-0 rounded-lg bg-transparent text-text-muted cursor-pointer transition-colors hover:bg-surface-soft hover:text-text"
+            onClick={() => setShowFullReceipt(false)}
+            className="absolute top-5 right-5 w-9 h-9 rounded-full bg-white/10 text-white flex items-center justify-center text-lg hover:bg-white/20"
           >
             ✕
           </button>
         </div>
-
-        {/* Montant — les filets haut/bas restent, ce sont des séparateurs de section */}
-        <div className="text-center py-5 mb-5 border-y border-border">
-          <div className="text-[2.4rem] font-extrabold font-mono text-text">
-            {fmt(Math.round(expense.amount))}{" "}
-            <span className="text-base font-semibold text-text-muted">
-              F CFA
-            </span>
-          </div>
-          {budget > 0 && (
-            <div className="mt-2 inline-block">
-              <Badge color={pctOfBudget > 50 ? "danger" : "success"}>
-                {pctOfBudget.toFixed(1)}% du budget catégorie
-              </Badge>
-            </div>
-          )}
-        </div>
-
-        {/* Tags — lecture seule pour l'instant (édition à venir avec le
-            formulaire d'ajout) */}
-        {(expense.tags ?? []).length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-5 -mt-2">
-            {expense.tags!.map((tag) => (
-              <span
-                key={tag}
-                className="text-[0.76rem] bg-primary/10 text-primary rounded-full px-2.5 py-1 font-medium"
-              >
-                🏷️ {tag}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Infos */}
-        <div className="flex flex-col mb-5">
-          {infoRows.map((row, i) => (
-            <div
-              key={i}
-              className="flex justify-between items-center py-2.5 border-b border-border/50 last:border-b-0 text-sm"
-            >
-              <span className="text-text-muted">{row.label}</span>
-              <span
-                className={`text-right ${row.mono ? "font-mono font-bold" : "font-semibold"} ${row.muted ? "text-text-muted text-xs" : "text-text"}`}
-              >
-                {row.value}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        {/* Barre budget catégorie */}
-        {budget > 0 && (
-          <div className="mb-5">
-            <div className="flex justify-between items-center">
-              <span className="text-[0.82rem] text-text-muted">
-                Budget {cat?.label.split(" ").slice(1).join(" ")} ce mois
-              </span>
-              <span
-                className={`font-mono font-bold text-[0.82rem] ${overBudget ? "text-danger" : "text-text"}`}
-              >
-                {fmt(catTotal)} / {fmt(budget)} F
-              </span>
-            </div>
-            <div className="h-2.5 bg-surface rounded-full overflow-hidden mt-1.5">
-              <div
-                className={`h-full rounded-full transition-[width] duration-500 ${overBudget ? "bg-danger" : pctCatUsed > 80 ? "bg-warning" : "bg-gradient-to-r from-primary to-secondary"}`}
-                style={{ width: `${pctCatUsed}%` }}
-              />
-            </div>
-            <div className="flex justify-between mt-1.5 text-xs text-text-muted">
-              <span>{pctCatUsed.toFixed(1)}% utilisé</span>
-              <span
-                className={`font-semibold ${overBudget ? "text-danger" : "text-success"}`}
-              >
-                {overBudget
-                  ? `Dépassé de ${fmt(Math.abs(catRemaining))} F`
-                  : `${fmt(catRemaining)} F restants`}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Actions */}
-        <div className="modal-actions">
-          <button className="btn btn-secondary" onClick={onClose}>
-            Fermer
-          </button>
-          <button
-            className="btn btn-danger"
-            onClick={() => {
-              onDelete(expense.id);
-              onClose();
-            }}
-          >
-            🗑️ Supprimer
-          </button>
-        </div>
-      </ModalBox>
-    </ModalOverlay>
+      )}
+    </>
   );
 }

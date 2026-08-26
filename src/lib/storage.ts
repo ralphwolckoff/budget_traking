@@ -987,8 +987,27 @@ export const remoteAPI = {
 // ── authAPI ────────────────────────────────────────────────────────────────────
 export const authAPI = {
   async register(username: string, password: string): Promise<AuthResult> {
-    if (window.electronAPI)
-      return window.electronAPI.authRegister(username, password);
+    if (window.electronAPI) {
+      const result = await window.electronAPI.authRegister(username, password);
+      if (!result.success) return result;
+
+      try {
+        const r = await fetch(`${SERVER_URL}/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(3000),
+          body: JSON.stringify({ username, password }),
+        });
+        if (r.ok) {
+          const httpResult = await r.json();
+          return { ...result, token: httpResult.token };
+        }
+      } catch {
+        /* pas bloquant */
+      }
+      return result;
+    }
+
     const r = await fetch(`${SERVER_URL}/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -997,8 +1016,33 @@ export const authAPI = {
     return r.json();
   },
   async login(username: string, password: string): Promise<AuthResult> {
-    if (window.electronAPI)
-      return window.electronAPI.authLogin(username, password);
+    if (window.electronAPI) {
+      const result = await window.electronAPI.authLogin(username, password);
+      if (!result.success) return result;
+
+      // L'IPC valide l'identité mais ne fournit pas de token de session.
+      // On en demande un au serveur HTTP local (même fichiers utilisateurs,
+      // même auth.js) pour activer Recherche/Rapports qui en ont besoin.
+      // Si le serveur local n'est pas joignable, on dégrade proprement :
+      // login IPC réussi quand même, juste sans Recherche/Rapports.
+      try {
+        const r = await fetch(`${SERVER_URL}/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(3000),
+          body: JSON.stringify({ username, password }),
+        });
+        if (r.ok) {
+          const httpResult = await r.json();
+          resetAuthExpired();
+          return { ...result, token: httpResult.token };
+        }
+      } catch {
+        /* serveur local indisponible — pas bloquant, juste pas de token */
+      }
+      return result;
+    }
+
     const r = await fetch(`${SERVER_URL}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1259,7 +1303,12 @@ export function createStorage(username: string, token: string | null): Storage {
       saveLocal(username, { ...data, updatedAt: new Date().toISOString() });
       // Tentative de flush silencieux en arrière-plan si queue non vide,
       // sauf si on sait déjà que la session est expirée (inutile).
-      if (!window.electronAPI && token && queue.count() > 0 && !sessionExpired) {
+      if (
+        !window.electronAPI &&
+        token &&
+        queue.count() > 0 &&
+        !sessionExpired
+      ) {
         flushQueue().catch(() => {});
       }
     },

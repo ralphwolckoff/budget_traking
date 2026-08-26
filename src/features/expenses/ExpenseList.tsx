@@ -1,8 +1,8 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { CATEGORIES, getMonthLabel } from "../../lib/constants";
-import type { Expense } from "../../lib/types";
-import { EmptyState } from "../../ui/Primitives";
 import ExpenseDetailModal from "./Expensedetailmodal";
+import { getMonthLabel, CATEGORIES } from "../../lib/constants";
+import { Expense } from "../../lib/types";
+import { EmptyState } from "../../ui/Primitives";
 
 // ── Clipboard global partagé entre onglets ─────────────────────────────────────
 type ClipboardEntry = {
@@ -399,6 +399,7 @@ interface InternalListProps {
   onViewDetail: (exp: Expense) => void;
   pulseId?: string | number | null;
   registerItemRef?: (id: string | number, el: HTMLDivElement | null) => void;
+  forceOpenExpenseId?: string | number | null;
 }
 
 function ChronoView({
@@ -434,10 +435,8 @@ function GroupedView({
   onDelete,
   onToggleSelect,
   onViewDetail,
-  pulseId,
-  registerItemRef,
   forceOpenExpenseId,
-}: InternalListProps & { forceOpenExpenseId?: string | number | null }) {
+}: InternalListProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   // Catégorie à forcer ouverte si la dépense mise en évidence s'y trouve
@@ -465,48 +464,43 @@ function GroupedView({
 
   return (
     <>
-      {groups.map(({ cat, items, total }) => {
-        const isOpen = cat.id === forceOpenCatId ? true : !collapsed[cat.id];
-        return (
-          <div key={cat.id} className="mb-2">
-            <div
-              onClick={() => toggle(cat.id)}
-              className="flex items-center gap-2.5 bg-surface-light rounded-xl py-3 px-4 cursor-pointer transition-colors select-none hover:bg-surface"
-            >
-              <span className="text-xl">{cat.label.split(" ")[0]}</span>
-              <span className="font-semibold text-[0.95rem] flex-1">
-                {cat.label.split(" ").slice(1).join(" ")}
-              </span>
-              <span className="text-xs text-text-muted bg-surface py-0.5 px-2 rounded-full">
-                {items.length} entrée{items.length > 1 ? "s" : ""}
-              </span>
-              <span className="font-mono font-bold text-danger text-[0.95rem]">
-                {total.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} F
-              </span>
-              <span className="text-[0.7rem] text-text-muted ml-1">
-                {isOpen ? "▼" : "▶"}
-              </span>
-            </div>
-            {isOpen && (
-              <div className="pl-4 mt-1.5 flex flex-col gap-1.5">
-                {items.map((exp) => (
-                  <ExpenseItem
-                    key={exp.id}
-                    exp={exp}
-                    compact
-                    isSelected={selected.has(exp.id)}
-                    onDelete={onDelete}
-                    onToggleSelect={onToggleSelect}
-                    onViewDetail={onViewDetail}
-                    isPulsing={pulseId === exp.id}
-                    registerRef={registerItemRef}
-                  />
-                ))}
-              </div>
-            )}
+      {groups.map(({ cat, items, total }) => (
+        <div key={cat.id} className="mb-2">
+          <div
+            onClick={() => toggle(cat.id)}
+            className="flex items-center gap-2.5 bg-surface-light rounded-xl py-3 px-4 cursor-pointer transition-colors select-none hover:bg-surface"
+          >
+            <span className="text-xl">{cat.label.split(" ")[0]}</span>
+            <span className="font-semibold text-[0.95rem] flex-1">
+              {cat.label.split(" ").slice(1).join(" ")}
+            </span>
+            <span className="text-xs text-text-muted bg-surface py-0.5 px-2 rounded-full">
+              {items.length} entrée{items.length > 1 ? "s" : ""}
+            </span>
+            <span className="font-mono font-bold text-danger text-[0.95rem]">
+              {total.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} F
+            </span>
+            <span className="text-[0.7rem] text-text-muted ml-1">
+              {collapsed[cat.id] ? "▶" : "▼"}
+            </span>
           </div>
-        );
-      })}
+          {!collapsed[cat.id] && (
+            <div className="pl-4 mt-1.5 flex flex-col gap-1.5">
+              {items.map((exp) => (
+                <ExpenseItem
+                  key={exp.id}
+                  exp={exp}
+                  compact
+                  isSelected={selected.has(exp.id)}
+                  onDelete={onDelete}
+                  onToggleSelect={onToggleSelect}
+                  onViewDetail={onViewDetail}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
     </>
   );
 }
@@ -539,8 +533,7 @@ function ExpenseItem({
       onClick={() => onViewDetail(exp)}
       className={`flex justify-between items-center gap-3 bg-surface rounded-xl transition-all cursor-pointer hover:translate-x-1 hover:bg-surface-soft
         ${compact ? "p-3 mb-0" : "p-4 mb-3"}
-        ${isSelected ? "bg-primary/10" : ""}
-        ${isPulsing ? "ring-2 ring-primary bg-primary/10 shadow-[0_0_0_4px_rgba(14,165,233,0.25)]" : ""}`}
+        ${isSelected ? "bg-primary/10" : ""}`}
     >
       <div
         onClick={(e) => {
@@ -560,9 +553,14 @@ function ExpenseItem({
           </div>
         )}
         <div
-          className={`text-text truncate ${compact ? "text-[0.88rem]" : "text-[0.95rem]"}`}
+          className={`flex items-center gap-1.5 text-text truncate ${compact ? "text-[0.88rem]" : "text-[0.95rem]"}`}
         >
-          {exp.description}
+          {exp.receiptImage && (
+            <span title="Reçu photo attaché" className="flex-shrink-0">
+              📎
+            </span>
+          )}
+          <span className="truncate">{exp.description}</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap mt-0.5">
           <span className="text-xs text-text-muted opacity-70">

@@ -16,6 +16,7 @@ export interface Expense {
   date: string;
   recurringId?: string; // si présent, cette dépense a été générée automatiquement
   tags?: string[]; // libellés libres — filtrage/analyse, aucune contrainte de format
+  receiptImage?: string; // data URL JPEG compressée (photo de reçu/ticket), voir imageCompress.ts
 }
 
 export interface ForecastItem {

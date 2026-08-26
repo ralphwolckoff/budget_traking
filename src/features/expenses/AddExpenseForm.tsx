@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { CATEGORIES, getMonthKey, getMonthLabel } from "../../lib/constants";
-import { SectionTitle, CategoryGrid } from "../../ui/Primitives";
+import { SectionTitle } from "../../ui/Primitives";
+import { compressReceiptImage } from "../../lib/Imagecompress";
 import TagInput from "../../ui/Taginput";
 
 interface Props {
@@ -11,6 +12,7 @@ interface Props {
     category: string;
     date: string;
     tags?: string[];
+    receiptImage?: string;
   }) => void;
   onOpenSettings: () => void;
   onOpenCatBudgets?: () => void;
@@ -33,10 +35,33 @@ export default function AddExpenseForm({
   const [category, setCategory] = useState("alimentation");
   const [customDate, setCustomDate] = useState("");
   const [tags, setTags] = useState<string[]>([]);
+  const [receiptImage, setReceiptImage] = useState<string | null>(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptError, setReceiptError] = useState("");
   const [formError, setFormError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentMonthKey = getMonthKey();
   const isPastMonth = targetMonth && targetMonth < currentMonthKey;
+
+  const handleReceiptFile = async (file: File) => {
+    setReceiptError("");
+    setReceiptLoading(true);
+    try {
+      const result = await compressReceiptImage(file);
+      if (result.tooLarge) {
+        setReceiptError(
+          `Photo trop volumineuse même après compression (${Math.round(result.sizeBytes / 1024)} Ko). Essaie une photo moins détaillée ou recadrée sur le ticket.`,
+        );
+      } else {
+        setReceiptImage(result.dataUrl);
+      }
+    } catch {
+      setReceiptError("Impossible de lire cette image.");
+    } finally {
+      setReceiptLoading(false);
+    }
+  };
 
   const handleAdd = () => {
     const cleaned = String(amount).replace(/\s/g, "").replace(",", ".");
@@ -59,12 +84,15 @@ export default function AddExpenseForm({
       category,
       date,
       tags: tags.length > 0 ? tags : undefined,
+      receiptImage: receiptImage ?? undefined,
     });
     setAmount("");
     setDescription("");
     setCustomDate("");
     setCategory("alimentation");
     setTags([]);
+    setReceiptImage(null);
+    setReceiptError("");
   };
 
   const handleKey = (e: React.KeyboardEvent) => {
@@ -98,11 +126,17 @@ export default function AddExpenseForm({
 
       <div className="input-group">
         <label className="input-label">Catégorie</label>
-        <CategoryGrid
-          categories={CATEGORIES}
+        <select
           value={category}
-          onChange={setCategory}
-        />
+          onChange={(e) => setCategory(e.target.value)}
+          className="w-full py-2.5 px-3 rounded-lg bg-surface-soft text-text text-[0.9rem] font-medium cursor-pointer outline-none transition-colors focus:ring-2 focus:ring-primary/40"
+        >
+          {CATEGORIES.map((cat) => (
+            <option key={cat.id} value={cat.id}>
+              {cat.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="input-group">
@@ -137,6 +171,62 @@ export default function AddExpenseForm({
           onChange={setTags}
           placeholder="Ex: urgent, remboursable…"
         />
+      </div>
+
+      <div className="input-group">
+        <label className="input-label">
+          Reçu / ticket{" "}
+          <span className="text-text-muted font-normal">(optionnel)</span>
+        </label>
+        {!receiptImage ? (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={receiptLoading}
+            className="flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-surface text-text-muted text-[0.85rem] cursor-pointer transition-colors hover:bg-surface-soft hover:text-text w-full"
+          >
+            {receiptLoading ? (
+              <>⏳ Compression en cours…</>
+            ) : (
+              <>📷 Ajouter une photo du reçu</>
+            )}
+          </button>
+        ) : (
+          <div className="flex items-center gap-3 py-2 px-2.5 rounded-lg bg-surface">
+            <img
+              src={receiptImage}
+              alt="Aperçu du reçu"
+              className="w-12 h-12 object-cover rounded-md flex-shrink-0"
+            />
+            <span className="flex-1 text-[0.8rem] text-text-muted">
+              Photo attachée ✓
+            </span>
+            <button
+              type="button"
+              onClick={() => setReceiptImage(null)}
+              className="text-text-muted hover:text-danger bg-transparent border-none cursor-pointer text-[0.8rem] px-1.5"
+            >
+              Retirer
+            </button>
+          </div>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleReceiptFile(file);
+            e.target.value = ""; // permet de re-choisir le même fichier après un retrait
+          }}
+        />
+        {receiptError && (
+          <div className="text-[0.78rem] text-danger mt-1.5">
+            ⚠️ {receiptError}
+          </div>
+        )}
       </div>
 
       {isPastMonth && (
