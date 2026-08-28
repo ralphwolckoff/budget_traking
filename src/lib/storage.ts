@@ -582,6 +582,8 @@ export const remoteAPI = {
       description: string;
       category: string;
       date: string;
+      tags?: string[];
+      receiptImage?:string;
     },
     tempId?: string | number,
   ): Promise<string | null> {

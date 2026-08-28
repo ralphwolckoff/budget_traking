@@ -4,6 +4,10 @@
 // ça exploserait le quota localStorage (~5-10 Mo total, pas juste pour ça)
 // et alourdirait chaque sync. On redimensionne + recompresse en JPEG avant
 // de le convertir en data URL.
+//
+// Accepte File OU Blob — File pour l'upload manuel (input[type=file]), Blob
+// pour l'import CSV avec URL d'image (le fetch() d'une image renvoie un Blob,
+// pas un File).
 // ══════════════════════════════════════════════════════════════════════════════
 
 const MAX_DIMENSION = 1000; // px — largeur/hauteur max, suffisant pour relire un ticket
@@ -16,10 +20,10 @@ export interface CompressResult {
   tooLarge: boolean;
 }
 
-function loadImage(file: File): Promise<HTMLImageElement> {
+function loadImage(source: Blob): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    const url = URL.createObjectURL(file);
+    const url = URL.createObjectURL(source);
     img.onload = () => {
       URL.revokeObjectURL(url);
       resolve(img);
@@ -40,9 +44,9 @@ function estimateBase64Bytes(dataUrl: string): number {
 }
 
 export async function compressReceiptImage(
-  file: File,
+  source: Blob,
 ): Promise<CompressResult> {
-  const img = await loadImage(file);
+  const img = await loadImage(source);
 
   let { width, height } = img;
   if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
@@ -67,4 +71,20 @@ export async function compressReceiptImage(
     sizeBytes,
     tooLarge: sizeBytes > MAX_RECEIPT_SIZE_BYTES,
   };
+}
+
+// ── Téléchargement d'une image distante pour l'import CSV ──────────────────────
+// Renvoie null en cas d'échec (URL invalide, CORS bloqué, 404...) plutôt que
+// de lever une exception — un import en masse ne doit pas s'arrêter parce
+// qu'UNE url d'image est cassée.
+export async function fetchImageAsBlob(url: string): Promise<Blob | null> {
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!r.ok) return null;
+    const blob = await r.blob();
+    if (!blob.type.startsWith("image/")) return null;
+    return blob;
+  } catch {
+    return null;
+  }
 }

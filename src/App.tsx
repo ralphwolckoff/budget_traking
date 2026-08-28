@@ -414,57 +414,65 @@ export default function App() {
   const nextKey = nextMonthKey(currentMonthKey);
 
   // ── Handlers dépenses ─────────────────────────────────────────────────────
-  const handleAddExpense = async ({
-    amount,
-    description,
-    category,
-    date,
-  }: {
-    amount: number;
-    description: string;
-    category: string;
-    date: string;
-  }) => {
-    const finalDate = date || new Date().toISOString();
-    const tempId = Date.now(); // ID temporaire local
+ const handleAddExpense = async ({
+   amount,
+   description,
+   category,
+   date,
+   tags,
+   receiptImage,
+ }: {
+   amount: number;
+   description: string;
+   category: string;
+   date: string;
+   tags?: string[];
+   receiptImage?: string;
+ }) => {
+   const finalDate = date || new Date().toISOString();
+   const tempId = Date.now(); // ID temporaire local
 
-    // 1. Mise à jour locale immédiate (UX réactive)
-    updateData((d) => {
-      if (!d.months[viewMonth]) d.months[viewMonth] = [];
-      d.months[viewMonth].unshift({
-        id: tempId,
-        amount: Math.round(amount),
-        description,
-        category,
-        date: finalDate,
-      });
-      return d;
-    });
+   // 1. Mise à jour locale immédiate (UX réactive)
+   updateData((d) => {
+     if (!d.months[viewMonth]) d.months[viewMonth] = [];
+     d.months[viewMonth].unshift({
+       id: tempId,
+       amount: Math.round(amount),
+       description,
+       category,
+       date: finalDate,
+       tags,
+       receiptImage,
+     });
+     return d;
+   });
 
-    // 2. Envoi API direct (queue automatique si hors ligne)
-    if (!IS_ELECTRON && currentUser.token) {
-      const dbId = await remoteAPI.addExpense(
-        currentUser.token,
-        viewMonth,
-        {
-          amount: Math.round(amount),
-          description,
-          category,
-          date: finalDate,
-        },
-        tempId,
-      );
-      if (dbId) {
-        updateData((d) => {
-          if (d.months[viewMonth])
-            d.months[viewMonth] = d.months[viewMonth].map((e) =>
-              e.id === tempId ? { ...e, id: dbId } : e,
-            );
-          return d;
-        });
-      }
-    }
-  };
+   // 2. Envoi API direct (queue automatique si hors ligne)
+   if (!IS_ELECTRON && currentUser.token) {
+     const dbId = await remoteAPI.addExpense(
+       currentUser.token,
+       viewMonth,
+       {
+         amount: Math.round(amount),
+         description,
+         category,
+         date: finalDate,
+         tags,
+         receiptImage,
+       },
+       tempId,
+     );
+     if (dbId) {
+       updateData((d) => {
+         if (d.months[viewMonth])
+           d.months[viewMonth] = d.months[viewMonth].map((e) =>
+             e.id === tempId ? { ...e, id: dbId } : e,
+           );
+         return d;
+       });
+     }
+   }
+ };
 
   const handleImportCsvExpenses = (
     expenses: {
@@ -775,7 +783,7 @@ export default function App() {
       {isMobile && sidebarOpen && (
         <div
           onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[99] animate-[fadeIn_0.2s_ease-out]"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] animate-[fadeIn_0.2s_ease-out]"
         />
       )}
 
@@ -807,7 +815,7 @@ export default function App() {
       {/* ═══ MAIN ═══ */}
       <main className="flex-1 flex flex-col min-h-0 overflow-y-auto">
         {/* Topbar */}
-        <div className="fixed flex items-center gap-3.5 px-6 py-3.5 bg-surface-soft border-b border-border sticky top-0 z-50 min-h-[60px]">
+        <div className="w-full flex items-center gap-3.5 px-6 py-3.5 bg-surface-soft sticky top-0 z-50 min-h-[60px]">
           <button
             onClick={() => setSidebarOpen((o) => !o)}
             className="w-[34px] h-[34px] flex-shrink-0 rounded-[9px] border-none border-border bg-surface text-text-muted text-[0.8rem] cursor-pointer transition-colors hover:text-primary hover:border-primary"
@@ -833,7 +841,10 @@ export default function App() {
               appData={appData}
               monthKey={currentMonthKey}
               username={currentUser.username}
-              onNavigate={navigateTo}
+              onNavigate={(page, monthKey) => {
+                if (monthKey?.monthKey) setViewMonth(monthKey.monthKey);
+                navigateTo(page);
+              }}
             />
             {currentUser.token && (
               <>

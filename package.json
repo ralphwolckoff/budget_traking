@@ -1,6 +1,6 @@
 {
   "name": "buildstack-budget",
-  "version": "1.0.0",
+  "version": "3.2.2",
   "description": "BuildStack Budget — Gérez vos finances personnelles avec clarté",
   "main": "electron/main.js",
   "scripts": {
@@ -80,7 +80,7 @@
       "deleteAppDataOnUninstall": false
     },
     "portable": {
-      "artifactName": "BuildStackBudget-Portable-${version}.exe"
+      "artifactName": "BuildStackBudget-${version}.exe"
     },
     "extraResources": [
       {

@@ -289,7 +289,11 @@ export function CategoryGrid<T extends string>({
   onChange: (id: T) => void;
 }) {
   return (
-    <div
+    newFunction()
+  );
+
+  function newFunction() {
+    return <div
       className="grid gap-2"
       style={{ gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))" }}
     >
@@ -306,6 +310,6 @@ export function CategoryGrid<T extends string>({
           </button>
         );
       })}
-    </div>
-  );
+    </div>;
+  }
 }
