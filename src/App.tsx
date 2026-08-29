@@ -815,7 +815,7 @@ export default function App() {
       {/* ═══ MAIN ═══ */}
       <main className="flex-1 flex flex-col min-h-0 overflow-y-auto">
         {/* Topbar */}
-        <div className="w-full flex items-center gap-3.5 px-6 py-3.5 bg-surface-soft sticky top-0 z-50 min-h-[60px]">
+        <div className=" w-full flex items-center gap-3.5 px-6 py-3.5 bg-surface-soft top-0 z-50 min-h-[60px]">
           <button
             onClick={() => setSidebarOpen((o) => !o)}
             className="w-[34px] h-[34px] flex-shrink-0 rounded-[9px] border-none border-border bg-surface text-text-muted text-[0.8rem] cursor-pointer transition-colors hover:text-primary hover:border-primary"

@@ -925,11 +925,12 @@ export const remoteAPI = {
   async downloadReport(
     token: string,
     format: "csv" | "pdf",
-    period: { month?: string; year?: string },
+    period: { month?: string; year?: string; months?:string},
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const params = new URLSearchParams();
       if (period.month) params.set("month", period.month);
+      if (period.months) params.set("months", period.months);
       if (period.year) params.set("year", period.year);
       const r = await fetch(`${SERVER_URL}/reports/${format}?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
